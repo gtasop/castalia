@@ -72,8 +72,26 @@ model Album {
 
   tracks    Track[]
   purchases Purchase[]
+  zips      AlbumZip[]
 
   @@index([artistId])
+}
+
+// A cached download zip of an album in one format, built the first time a
+// buyer asks for it so later downloads are served straight from storage.
+// The fingerprint covers everything that ends up in the zip, so any change
+// to the album (titles, tracks, files) makes it stale and it is rebuilt.
+model AlbumZip {
+  id          String   @id @default(cuid())
+  albumId     String
+  album       Album    @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  format      String   // "hires" | "flac" | "mp3"
+  fingerprint String
+  key         String
+  bytes       BigInt
+  createdAt   DateTime @default(now())
+
+  @@unique([albumId, format])
 }
 
 enum TrackStatus {
@@ -93,6 +111,9 @@ model Track {
   error            String?
   masterBitDepth   Int?
   masterSampleRate Int?
+  // The uploaded master is only kept when none of the FLAC files below
+  // decodes to exactly the same audio (e.g. 16-bit/48 kHz or 32-bit float).
+  masterKey        String?
   createdAt        DateTime    @default(now())
 
   files TrackFile[]
