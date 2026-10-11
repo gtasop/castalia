@@ -1,12 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { TrackList, type PlayerTrack } from "@/components/player";
+import { PreviewButton } from "@/components/preview";
 import { Cover, Notice } from "@/components/ui";
 import { canStream, ownsAlbum } from "@/lib/access";
 import { currentUser, hasActiveSubscription } from "@/lib/auth";
 import { DOWNLOAD_FORMATS } from "@/lib/constants";
 import { db } from "@/lib/db";
+import { genreSlug } from "@/lib/genres";
 import { formatEur, simulatedCardFee, vatIncluded } from "@/lib/money";
+import { previewVersion } from "@/lib/previews";
 import { buyAlbum } from "../../actions";
 
 export default async function AlbumPage({
@@ -58,6 +61,15 @@ export default async function AlbumPage({
         <Link href={`/artist/${album.artist.id}`} className="link">
           {album.artist.name}
         </Link>
+        {album.genres.length > 0 && (
+          <p className="mt-2 flex flex-wrap gap-2">
+            {album.genres.map((g) => (
+              <Link key={g} href={`/albums?genre=${genreSlug(g)}`} className="border-2 border-fg px-2 py-0.5 font-mono text-xs hover:bg-accent hover:text-accent-fg">
+                {g.toLowerCase()}
+              </Link>
+            ))}
+          </p>
+        )}
         {album.description && <p className="mt-3 max-w-prose text-muted">{album.description}</p>}
 
         <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -69,6 +81,7 @@ export default async function AlbumPage({
               <button className="btn">Buy album · {formatEur(album.priceCents)}</button>
             </form>
           )}
+          {!playable && album.tracks.length > 0 && <PreviewButton albumId={album.id} version={previewVersion(album)} />}
           {!playable && !hasActiveSubscription(user) && (
             <Link href={user ? "/subscribe" : "/signup"} className="btn-ghost">
               Or subscribe to stream
@@ -86,7 +99,7 @@ export default async function AlbumPage({
         </div>
 
         {owned && album.tracks.length > 0 && (
-          <div className="card mt-8">
+          <div id="download" className="card mt-8 scroll-mt-6">
             <h2 className="h2">Download, DRM-free</h2>
             <p className="mt-1 text-sm text-muted">Yours to keep, play anywhere and back up.</p>
             <div className="mt-4 flex flex-wrap gap-2">

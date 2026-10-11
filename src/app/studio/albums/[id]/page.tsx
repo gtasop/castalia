@@ -1,11 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { PreviewButton } from "@/components/preview";
 import { Cover, Notice } from "@/components/ui";
 import { CoverUploader, RefreshWhileProcessing, TrackUploader } from "@/components/uploader";
 import { qualityLabel } from "@/lib/audio";
 import { requireArtist } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { deleteTrack, renameTrack, setPublished, updateAlbum, uploadCover } from "../../../actions";
+import { GENRES, MAX_GENRES } from "@/lib/genres";
+import { PREVIEW_SECONDS, previewVersion, resolvePreview } from "@/lib/previews";
+import { deleteTrack, renameTrack, setPreview, setPublished, updateAlbum, uploadCover } from "../../../actions";
+
+const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
 export default async function EditAlbumPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ error?: string }> }) {
   const { id } = await params;
@@ -17,6 +22,8 @@ export default async function EditAlbumPage({ params, searchParams }: { params: 
   });
   if (!album || album.artistId !== artist.id) notFound();
   const processing = album.tracks.some((t) => t.status === "PROCESSING");
+  const readyTracks = album.tracks.filter((t) => t.status === "READY");
+  const preview = resolvePreview(album);
 
   return (
     <div className="space-y-8">
@@ -47,7 +54,7 @@ export default async function EditAlbumPage({ params, searchParams }: { params: 
           <CoverUploader albumId={album.id} action={uploadCover} />
         </div>
 
-        <form action={updateAlbum} className="card space-y-3">
+        <form key={`${album.title}|${album.priceCents}|${album.genres.join()}`} action={updateAlbum} className="card space-y-3">
           <input type="hidden" name="albumId" value={album.id} />
           <div>
             <label className="label" htmlFor="title">Title</label>
@@ -61,9 +68,63 @@ export default async function EditAlbumPage({ params, searchParams }: { params: 
             <label className="label" htmlFor="price">Price (EUR, VAT incl.)</label>
             <input className="input" id="price" name="price" inputMode="decimal" defaultValue={(album.priceCents / 100).toFixed(2)} required />
           </div>
+          <fieldset>
+            <legend className="label">Genres (optional, up to {MAX_GENRES})</legend>
+            <div className="flex flex-wrap gap-2">
+              {GENRES.map((g) => (
+                <label
+                  key={g}
+                  className="cursor-pointer border-2 border-fg px-2 py-0.5 font-mono text-xs has-[:checked]:bg-accent has-[:checked]:text-accent-fg has-[:focus-visible]:shadow-[2px_2px_0_var(--fg)]"
+                >
+                  <input type="checkbox" name="genres" value={g} defaultChecked={album.genres.includes(g)} className="sr-only" />
+                  {g.toLowerCase()}
+                </label>
+              ))}
+            </div>
+          </fieldset>
           <button className="btn-ghost">Save</button>
         </form>
       </div>
+
+      <section className="card">
+        <h2 className="h2">Preview</h2>
+        <p className="mt-1 text-sm text-muted">
+          {PREVIEW_SECONDS} seconds anyone can hear before buying, even without an account. Previews never count as plays.
+        </p>
+        {preview ? (
+          <>
+            {/* Keyed so the fields reset to the saved choice after each save. */}
+            <form key={previewVersion(album)} action={setPreview} className="mt-4 flex flex-wrap items-end gap-3">
+              <input type="hidden" name="albumId" value={album.id} />
+              <div className="min-w-56 flex-1">
+                <label className="label" htmlFor="trackId">Track</label>
+                <select className="input" id="trackId" name="trackId" defaultValue={preview.chosenByArtist ? preview.track.id : ""}>
+                  <option value="">Automatic: track 1, from 0:30</option>
+                  {readyTracks.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.number}. {t.title} ({clock(t.durationSec)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="w-28">
+                <label className="label" htmlFor="start">Starts at</label>
+                <input className="input" id="start" name="start" placeholder="0:30" defaultValue={preview.chosenByArtist ? clock(preview.startSec) : ""} />
+              </div>
+              <button className="btn-ghost">Save preview</button>
+            </form>
+            <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
+              <PreviewButton albumId={album.id} version={previewVersion(album)} />
+              <span className="text-muted">
+                Now playing from <strong className="text-fg">{preview.track.title}</strong>, {clock(preview.startSec)} to{" "}
+                {clock(preview.startSec + Math.min(PREVIEW_SECONDS, preview.track.durationSec - preview.startSec))}
+              </span>
+            </div>
+          </>
+        ) : (
+          <p className="mt-3 text-sm text-muted">Add a track first. The preview is cut from one of your tracks.</p>
+        )}
+      </section>
 
       <section>
         <h2 className="h2">Tracks</h2>

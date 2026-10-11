@@ -40,6 +40,14 @@ The uploaded master is only stored when none of the FLAC files is a bit-exact co
 
 Album downloads are zips, built the first time a buyer asks for one in a given format. The zip is kept in storage and later downloads are served straight from there, so albums that never sell take up no extra space. Changing an album's tracks or titles makes its cached zips stale, and they are rebuilt on the next download.
 
+## Browsing, previews and genres
+
+`/albums` lets anyone browse what can be bought and downloaded, with search, genre and hi-res filters and sorting by price.
+
+Every album has a **15-second preview** that anyone can hear, even without an account. The artist picks the track and start time in the album editor. Without a choice, the preview comes from track 1, starting 30 seconds in. Previews are separate AAC clips (~450 KB), so the full track is never exposed, and they never count as plays. A clip is cut the first time it is requested, and again whenever the choice changes.
+
+Artists can tag an album with up to 3 **genres** from a fixed list ([`src/lib/genres.ts`](src/lib/genres.ts)). Genres are optional.
+
 ## Hosting costs
 
 Estimate for a 45-minute, 11-track album on Cloudflare R2 ($0.015 per GB-month, no egress fees):

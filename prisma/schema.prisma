@@ -76,12 +76,23 @@ model Album {
   published   Boolean   @default(false)
   releasedAt  DateTime?
   createdAt   DateTime  @default(now())
+  // Optional, up to 3, from the fixed list in src/lib/genres.ts.
+  genres      String[]  @default([])
+
+  // 15-second preview chosen by the artist. Without a choice the preview
+  // comes from the first track. The clip is generated on first request and
+  // cached; the fingerprint says which track/start/file it was cut from.
+  previewTrackId     String?
+  previewStartSec    Int     @default(0)
+  previewKey         String?
+  previewFingerprint String?
 
   tracks    Track[]
   purchases Purchase[]
   zips      AlbumZip[]
 
   @@index([artistId])
+  @@index([genres], type: Gin)
 }
 
 // A cached download zip of an album in one format, built the first time a

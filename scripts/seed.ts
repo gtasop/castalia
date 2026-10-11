@@ -17,7 +17,7 @@ import { db } from "../src/lib/db";
 
 const PASSWORD = "castalia-demo";
 
-type DemoAlbum = { title: string; description: string; priceCents: number; hiRes: boolean; tracks: [string, number[]][] };
+type DemoAlbum = { title: string; description: string; priceCents: number; genres: string[]; hiRes: boolean; tracks: [string, number[]][] };
 const ARTISTS: { email: string; name: string; bio: string; albums: DemoAlbum[] }[] = [
   {
     email: "echo@castalia.test",
@@ -28,6 +28,7 @@ const ARTISTS: { email: string; name: string; bio: string; albums: DemoAlbum[] }
         title: "Castalian Spring",
         description: "A hi-res demo album, 24-bit / 96 kHz.",
         priceCents: 900,
+        genres: ["Ambient", "Electronic"],
         hiRes: true,
         tracks: [["Morning at Delphi", [220, 277.18, 329.63]], ["Laurel", [196, 246.94, 293.66]], ["Water Over Stone", [174.61, 220, 261.63]]],
       },
@@ -42,6 +43,7 @@ const ARTISTS: { email: string; name: string; bio: string; albums: DemoAlbum[] }
         title: "Arcadia",
         description: "A CD-quality demo album, 16-bit / 44.1 kHz.",
         priceCents: 700,
+        genres: ["Ambient", "Experimental"],
         hiRes: false,
         tracks: [["Syrinx", [261.63, 329.63, 392]], ["Shepherd's Hour", [293.66, 349.23, 440]]],
       },
@@ -81,7 +83,7 @@ async function main() {
       for (const al of a.albums) {
         if (await db.album.findFirst({ where: { artistId: artist.id, title: al.title } })) continue;
         const album = await db.album.create({
-          data: { artistId: artist.id, title: al.title, description: al.description, priceCents: al.priceCents, published: true, releasedAt: new Date() },
+          data: { artistId: artist.id, title: al.title, description: al.description, priceCents: al.priceCents, genres: al.genres, published: true, releasedAt: new Date() },
         });
         for (const [i, [title, freqs]] of al.tracks.entries()) {
           const track = await db.track.create({ data: { albumId: album.id, number: i + 1, title } });
