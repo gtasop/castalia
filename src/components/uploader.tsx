@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 
 type Item = { name: string; progress: number; error?: string };
 
@@ -80,4 +80,29 @@ export function RefreshWhileProcessing({ active }: { active: boolean }) {
     return () => clearInterval(t);
   }, [active, router]);
   return null;
+}
+
+/** Picks an image and uploads it as the album cover straight away. */
+export function CoverUploader({ albumId, action }: { albumId: string; action: (form: FormData) => Promise<void> }) {
+  const [pending, startTransition] = useTransition();
+  return (
+    <label className={`btn-ghost block w-full cursor-pointer text-center ${pending ? "pointer-events-none opacity-60" : ""}`}>
+      <input
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        className="sr-only"
+        disabled={pending}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (!file) return;
+          const form = new FormData();
+          form.set("albumId", albumId);
+          form.set("cover", file);
+          startTransition(() => action(form));
+        }}
+      />
+      {pending ? "Uploading…" : "Upload cover"}
+    </label>
+  );
 }
