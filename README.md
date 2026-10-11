@@ -1,36 +1,93 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Castalia
 
-## Getting Started
+A minimal, lossless music platform where the artist gets the money.
 
-First, run the development server:
+- **Subscriptions** are pay-what-you-want, from €5 a month.
+- **Albums** can be bought outright. The buyer streams them in the app forever and downloads DRM-free FLAC (16-bit or hi-res) or MP3.
+- **No profit.** Only VAT, card fees and the actual hosting bill are deducted, and hosting is capped at 20%. Everything else goes to artists.
+
+Named after the Castalian Spring at Delphi, the sacred spring of the Muses.
+
+## How the money is split
+
+For each paid subscription month:
+
+1. **VAT** goes to the tax office and the **card processor** takes its fee.
+2. The subscriber pays an **equal share of that month's hosting bill**, but never more than **20%** of what is left. If hosting costs more than that, the shortfall is drawn from a **reserve funded by donations**. It never comes out of the artists' share.
+3. The rest is split between the artists **that subscriber** played. Only plays of **30 seconds or more** count, and each artist gets a share proportional to their plays (user-centric).
+4. If a subscriber plays nothing that month, their share goes to a **shared fund**, split across all artists by their share of all plays.
+
+**Album sales** go to the artist minus VAT and the card fee, with no hosting deduction.
+
+Listeners see a statement of where every cent went. Artists see their earnings by month, and the public `/transparency` page shows the totals.
+
+The calculation is a pure, unit-tested function: [`src/lib/payouts/engine.ts`](src/lib/payouts/engine.ts).
+
+## Audio
+
+Artists upload lossless masters (FLAC, WAV, AIFF or ALAC). ffmpeg transcodes each one into:
+
+| Format | Used for |
+| --- | --- |
+| FLAC at the original resolution (up to 24-bit / 192 kHz) | Hi-Res streaming and download, only when the master is hi-res |
+| FLAC 16-bit / 44.1 kHz (long-filter resample, dithered) | Lossless streaming and download |
+| AAC 256 kbps | "Data saver" streaming |
+| MP3 320 kbps | Download |
+
+Listeners choose Hi-Res, Lossless or Data saver in the player.
+
+## Running it locally
+
+Requirements: Node 20+. Postgres and ffmpeg come from npm, so nothing else needs to be installed.
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+cp .env.example .env
+npm run db            # local Postgres on :5433, keep it running
+npx prisma migrate dev
+npm run seed          # demo accounts + albums with generated audio
+npm run dev           # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Without Stripe keys the app runs in **demo mode**: payments succeed instantly, with Stripe's standard EU card fee simulated. The admin page has a button that ends subscription periods early, so a full payout cycle can be tried without waiting a month.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Demo accounts are listed at the top of [`scripts/seed.ts`](scripts/seed.ts).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Trying a full cycle
 
-## Learn More
+1. Log in as the listener, subscribe and play a track for 30+ seconds. Buy an album and download it.
+2. Log in as an artist and set up payouts in **Studio → Payouts**.
+3. Log in as the admin, enter a hosting bill, click **Demo: end all subscription periods now**, close the month and pay the artists.
+4. Back as the listener, **Account** shows where the money went.
 
-To learn more about Next.js, take a look at the following resources:
+## Production setup
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- **Database:** any Postgres (for example Neon or Supabase). Set `DATABASE_URL` and run `npx prisma migrate deploy`.
+- **Storage:** set `STORAGE_DRIVER=s3` and point it at an S3-compatible bucket. Cloudflare R2 is recommended because it has no egress fees, which keeps the hosting bill small. Audio is then served to listeners through short-lived signed URLs.
+- **Payments:** set `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`, enable Stripe Connect (Express accounts), and send these webhook events to `/api/stripe/webhook`:
+  - `checkout.session.completed`
+  - `invoice.paid`
+  - `customer.subscription.updated`
+  - `customer.subscription.deleted`
+  - `account.updated`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+  Turn on Stripe Tax and set `STRIPE_TAX=1` to charge the correct VAT for each customer's country (EU OSS).
+- **Transcoding:** runs in the web process after an upload. With many uploads, move `processTrack` to a background worker.
 
-## Deploy on Vercel
+## Scripts
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+| Command | What it does |
+| --- | --- |
+| `npm run db` | Local Postgres (embedded, data in `.pgdata/`) |
+| `npm run seed` | Demo data |
+| `npm run dev` | Dev server |
+| `npm test` | Payout engine tests |
+| `npm run build` | Production build |
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Not built yet
+
+- Mobile and desktop apps, including offline downloads for subscribers
+- Search, playlists, following artists
+- Moderation and copyright claims for uploads
+- Fraud detection beyond the basics: there is a 30s minimum per play, one counted play per track per track length, and artists' plays of their own music don't count
+- Password reset and email verification

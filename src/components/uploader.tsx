@@ -1,0 +1,83 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+
+type Item = { name: string; progress: number; error?: string };
+
+function upload(albumId: string, file: File, onProgress: (p: number) => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const body = new FormData();
+    body.set("albumId", albumId);
+    body.set("file", file);
+    body.set("title", file.name.replace(/\.[^.]+$/, "").replace(/^\d+[\s._-]+/, ""));
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/studio/tracks");
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
+    xhr.onload = () => (xhr.status < 300 ? resolve() : reject(new Error(xhr.responseText || "Upload failed")));
+    xhr.onerror = () => reject(new Error("Network error"));
+    xhr.send(body);
+  });
+}
+
+/** Uploads lossless masters one at a time, in the order chosen. */
+export function TrackUploader({ albumId }: { albumId: string }) {
+  const router = useRouter();
+  const [items, setItems] = useState<Item[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  async function onFiles(files: FileList | null) {
+    if (!files?.length) return;
+    const list = [...files].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    setItems(list.map((f) => ({ name: f.name, progress: 0 })));
+    setBusy(true);
+    for (const [i, f] of list.entries()) {
+      try {
+        await upload(albumId, f, (p) => setItems((xs) => xs.map((x, j) => (j === i ? { ...x, progress: p } : x))));
+        setItems((xs) => xs.map((x, j) => (j === i ? { ...x, progress: 1 } : x)));
+      } catch (e) {
+        setItems((xs) => xs.map((x, j) => (j === i ? { ...x, error: (e as Error).message } : x)));
+      }
+      router.refresh();
+    }
+    setBusy(false);
+  }
+
+  return (
+    <div className="card">
+      <label className="block cursor-pointer rounded-xl border-2 border-dashed border-line p-6 text-center hover:border-accent">
+        <input type="file" multiple accept=".flac,.wav,.aif,.aiff,.m4a,.alac" className="sr-only" disabled={busy} onChange={(e) => onFiles(e.target.files)} />
+        <span className="font-medium">{busy ? "Uploading…" : "Add tracks"}</span>
+        <span className="mt-1 block text-sm text-muted">
+          Lossless masters: FLAC, WAV, AIFF or ALAC, up to 24-bit / 192 kHz. Files are added in name order.
+        </span>
+      </label>
+      {items.length > 0 && (
+        <ul className="mt-4 space-y-2 text-sm">
+          {items.map((it, i) => (
+            <li key={i}>
+              <div className="flex justify-between">
+                <span className="truncate">{it.name}</span>
+                <span className={it.error ? "text-danger" : "text-muted"}>{it.error ?? `${Math.round(it.progress * 100)}%`}</span>
+              </div>
+              <div className="mt-1 h-1 rounded-full bg-line">
+                <div className="h-1 rounded-full bg-accent transition-all" style={{ width: `${it.progress * 100}%` }} />
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** Refreshes the page while tracks are still being transcoded. */
+export function RefreshWhileProcessing({ active }: { active: boolean }) {
+  const router = useRouter();
+  useEffect(() => {
+    if (!active) return;
+    const t = setInterval(() => router.refresh(), 3000);
+    return () => clearInterval(t);
+  }, [active, router]);
+  return null;
+}
