@@ -20,6 +20,7 @@ import {
 } from "@/lib/payments";
 import { createPayoutRun, deletePayoutRun, payRun } from "@/lib/payouts/run";
 import { deletePrefix, putFile } from "@/lib/storage";
+import { isTheme, setThemeCookie, themePreference, toThemeEnum, toThemePref } from "@/lib/theme";
 
 const fail = (to: string, msg: string): never => redirect(`${to}${to.includes("?") ? "&" : "?"}error=${encodeURIComponent(msg)}`);
 
@@ -42,6 +43,7 @@ export async function signup(form: FormData) {
       name,
       email,
       role,
+      theme: toThemeEnum(await themePreference(null)),
       passwordHash: await hashPassword(password),
       ...(role === "ARTIST" ? { artist: { create: { name } } } : {}),
     },
@@ -56,9 +58,19 @@ export async function login(form: FormData) {
   const user = await db.user.findUnique({ where: { email } });
   if (!user || !(await verifyPassword(password, user.passwordHash))) fail(`/login?next=${encodeURIComponent(String(form.get("next") ?? ""))}`, "Wrong email or password");
   await createSession(user!.id);
+  await setThemeCookie(toThemePref(user!.theme));
   const next = String(form.get("next") ?? "");
   // Only same-site paths, never "//host" or "/\host".
   redirect(/^\/(?![/\\])/.test(next) ? next : "/");
+}
+
+export async function setTheme(form: FormData) {
+  const theme = form.get("theme");
+  if (!isTheme(theme)) return;
+  await setThemeCookie(theme);
+  const user = await currentUser();
+  if (user) await db.user.update({ where: { id: user.id }, data: { theme: toThemeEnum(theme) } });
+  revalidatePath("/", "layout");
 }
 
 export async function logout() {

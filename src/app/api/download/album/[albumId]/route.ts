@@ -2,6 +2,7 @@ import { ownsAlbum } from "@/lib/access";
 import { currentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { serveFile } from "@/lib/http";
+import { themePreference, type ThemePref } from "@/lib/theme";
 import { isDownloadFormat, loadAlbumForZip, requestZip, zipPlan } from "@/lib/zips";
 
 /**
@@ -27,20 +28,23 @@ export async function GET(req: Request, { params }: { params: Promise<{ albumId:
   }
 
   const state = requestZip(album, format);
+  const theme = await themePreference(user);
   const back = `/album/${albumId}`;
   return state.status === "failed"
-    ? page("Download failed", `<p>${escapeHtml(state.error)}</p><p><a href="?format=${format}">Try again</a> · <a href="${back}">Back to the album</a></p>`)
+    ? page(theme, "Download failed", `<p>${escapeHtml(state.error)}</p><p><a href="?format=${format}">Try again</a> · <a href="${back}">Back to the album</a></p>`)
     : page(
+        theme,
         "Preparing your download",
         `<p>We are putting <strong>${escapeHtml(album.title)}</strong> together. This happens once per album and format, and the download starts by itself when it is ready.</p><p><a href="${back}">Back to the album</a></p>`,
         3,
       );
 }
 
-function page(title: string, body: string, refreshSeconds?: number) {
+function page(theme: ThemePref, title: string, body: string, refreshSeconds?: number) {
+  const scheme = theme === "system" ? "light dark" : theme;
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 ${refreshSeconds ? `<meta http-equiv="refresh" content="${refreshSeconds}">` : ""}<title>${title} · Castalia</title>
-<style>:root{color-scheme:light dark}body{font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 16px;line-height:1.5}a{color:#1f6f78}@media(prefers-color-scheme:dark){a{color:#5fb3bb}}</style>
+<style>:root{color-scheme:${scheme}}body{font-family:ui-monospace,monospace;max-width:32rem;margin:15vh auto;padding:0 16px;line-height:1.5}a{color:light-dark(#c2410c,#f97316)}</style>
 </head><body><h1>${title}</h1>${body}</body></html>`;
   return new Response(html, {
     status: refreshSeconds ? 202 : 500,

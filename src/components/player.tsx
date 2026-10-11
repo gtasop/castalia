@@ -147,29 +147,29 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         onError={() => setError("Subscribe or buy this album to listen.")}
       />
       {current && (
-        <div className="fixed inset-x-0 bottom-0 z-50 border-t border-line bg-surface/95 backdrop-blur">
+        <div className="fixed inset-x-0 bottom-0 z-50 border-t-2 border-[var(--bar-edge)] bg-bar text-bar-fg">
           <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
             <div className="flex items-center gap-1">
-              <button aria-label="Previous" className="rounded-full p-2 hover:bg-bg disabled:opacity-30" disabled={index === 0} onClick={() => next(-1)}>
+              <button aria-label="Previous" className="p-2 hover:text-accent disabled:opacity-30 disabled:hover:text-bar-fg" disabled={index === 0} onClick={() => next(-1)}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zM9.5 12 18 18V6z" /></svg>
               </button>
-              <button aria-label={playing ? "Pause" : "Play"} className="rounded-full bg-accent p-2.5 text-accent-fg" onClick={toggle}>
+              <button aria-label={playing ? "Pause" : "Play"} className="border-2 border-bar-fg bg-accent p-2 text-accent-fg active:translate-x-px active:translate-y-px" onClick={toggle}>
                 {playing ? (
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z" /></svg>
                 ) : (
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
                 )}
               </button>
-              <button aria-label="Next" className="rounded-full p-2 hover:bg-bg disabled:opacity-30" disabled={index >= queue.length - 1} onClick={() => next(1)}>
+              <button aria-label="Next" className="p-2 hover:text-accent disabled:opacity-30 disabled:hover:text-bar-fg" disabled={index >= queue.length - 1} onClick={() => next(1)}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z" /></svg>
               </button>
             </div>
-            <div className="min-w-0 flex-1 basis-48">
+            <div className="order-first min-w-0 basis-full sm:order-none sm:flex-1 sm:basis-48">
               <div className="flex items-baseline justify-between gap-2 text-sm">
                 <span className="truncate">
-                  <span className="font-medium">{current.title}</span> <span className="text-muted">· {current.artist}</span>
+                  <span className="font-mono font-bold">{current.title}</span> <span className="text-bar-muted">· {current.artist}</span>
                 </span>
-                <span className="shrink-0 font-mono text-xs text-muted">
+                <span className="shrink-0 font-mono text-xs text-bar-muted">
                   {fmtTime(time)} / {fmtTime(duration || current.durationSec)}
                 </span>
               </div>
@@ -187,14 +187,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
                   lastPos.current = t;
                 }}
               />
-              <div className="flex justify-between text-xs text-muted">
-                <span>{error ?? formatNote}</span>
-                <span>{counted ? "Play counted ✓" : `Counts after ${MIN_PLAY_SECONDS}s`}</span>
+              <div className="flex justify-between font-mono text-[11px] text-bar-muted">
+                <span className="truncate">{error ?? formatNote}</span>
+                <span className={`shrink-0 pl-3 ${counted ? "text-accent" : ""}`}>{counted ? "play counted ✓" : `counts after ${MIN_PLAY_SECONDS}s`}</span>
               </div>
             </div>
             <select
               aria-label="Audio quality"
-              className="rounded-full border border-line bg-surface px-3 py-1.5 text-xs"
+              className="ml-auto border-2 border-bar-fg bg-bar px-2 py-1.5 font-mono text-xs text-bar-fg sm:ml-0"
               value={quality}
               onChange={(e) => changeQuality(e.target.value as QualityPref)}
             >
@@ -214,7 +214,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 export function TrackList({ tracks, canPlay }: { tracks: PlayerTrack[]; canPlay: boolean }) {
   const { current, playing, play, toggle } = usePlayer();
   return (
-    <ol className="divide-y divide-line">
+    <ol className="divide-y divide-line border-y-2 border-fg">
       {tracks.map((t, i) => {
         const active = current?.id === t.id;
         return (
@@ -222,12 +222,12 @@ export function TrackList({ tracks, canPlay }: { tracks: PlayerTrack[]; canPlay:
             <button
               disabled={!canPlay}
               onClick={() => (active ? toggle() : play(tracks, i))}
-              className="flex w-full items-center gap-4 px-2 py-3 text-left hover:bg-bg disabled:cursor-not-allowed disabled:hover:bg-transparent"
+              className={`flex w-full items-center gap-4 px-2 py-3 text-left disabled:cursor-not-allowed ${active ? "bg-fg text-bg" : "hover:bg-line disabled:hover:bg-transparent"}`}
             >
-              <span className="w-6 text-right font-mono text-sm text-muted">{active && playing ? "▶" : i + 1}</span>
-              <span className={`flex-1 truncate ${active ? "font-medium text-accent" : ""}`}>{t.title}</span>
-              {t.hiRes && <span className="rounded border border-line px-1.5 text-[10px] uppercase tracking-wide text-muted">Hi-Res</span>}
-              <span className="font-mono text-sm text-muted">{fmtTime(t.durationSec)}</span>
+              <span className={`w-6 text-right font-mono text-sm ${active ? "text-accent" : "text-muted"}`}>{active && playing ? "▶" : i + 1}</span>
+              <span className={`flex-1 truncate ${active ? "font-mono font-bold" : ""}`}>{t.title}</span>
+              {t.hiRes && <span className="tag">hi-res</span>}
+              <span className={`font-mono text-sm ${active ? "" : "text-muted"}`}>{fmtTime(t.durationSec)}</span>
             </button>
           </li>
         );

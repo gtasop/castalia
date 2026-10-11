@@ -45,9 +45,9 @@ export function TrackUploader({ albumId }: { albumId: string }) {
 
   return (
     <div className="card">
-      <label className="block cursor-pointer rounded-xl border-2 border-dashed border-line p-6 text-center hover:border-accent">
+      <label className="block cursor-pointer border-2 border-dashed border-fg p-6 text-center hover:border-accent hover:bg-line">
         <input type="file" multiple accept=".flac,.wav,.aif,.aiff,.m4a,.alac" className="sr-only" disabled={busy} onChange={(e) => onFiles(e.target.files)} />
-        <span className="font-medium">{busy ? "Uploading…" : "Add tracks"}</span>
+        <span className="font-mono font-bold">{busy ? "uploading…" : "+ add tracks"}</span>
         <span className="mt-1 block text-sm text-muted">
           Lossless masters: FLAC, WAV, AIFF or ALAC, up to 24-bit / 192 kHz. Files are added in name order.
         </span>
@@ -60,8 +60,8 @@ export function TrackUploader({ albumId }: { albumId: string }) {
                 <span className="truncate">{it.name}</span>
                 <span className={it.error ? "text-danger" : "text-muted"}>{it.error ?? `${Math.round(it.progress * 100)}%`}</span>
               </div>
-              <div className="mt-1 h-1 rounded-full bg-line">
-                <div className="h-1 rounded-full bg-accent transition-all" style={{ width: `${it.progress * 100}%` }} />
+              <div className="meter mt-1">
+                <div className="transition-all" style={{ width: `${it.progress * 100}%` }} />
               </div>
             </li>
           ))}

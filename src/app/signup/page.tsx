@@ -11,11 +11,11 @@ export default async function SignupPage({ searchParams }: { searchParams: Promi
       <form action={signup} className="space-y-4">
         <fieldset className="grid grid-cols-2 gap-2">
           <legend className="label">I am a</legend>
-          <label className="card flex cursor-pointer items-center gap-2 p-3 has-[:checked]:border-accent">
-            <input type="radio" name="role" value="LISTENER" defaultChecked /> Listener
+          <label className="card flex cursor-pointer items-center gap-2 p-3 font-mono text-sm has-[:checked]:shadow-[5px_5px_0_var(--accent)]">
+            <input type="radio" name="role" value="LISTENER" defaultChecked className="accent-[var(--accent)]" /> listener
           </label>
-          <label className="card flex cursor-pointer items-center gap-2 p-3 has-[:checked]:border-accent">
-            <input type="radio" name="role" value="ARTIST" /> Artist
+          <label className="card flex cursor-pointer items-center gap-2 p-3 font-mono text-sm has-[:checked]:shadow-[5px_5px_0_var(--accent)]">
+            <input type="radio" name="role" value="ARTIST" className="accent-[var(--accent)]" /> artist
           </label>
         </fieldset>
         <div>

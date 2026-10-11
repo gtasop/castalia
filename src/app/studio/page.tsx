@@ -36,10 +36,10 @@ export default async function StudioPage({ searchParams }: { searchParams: Promi
         <h2 className="h2">Albums</h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           {albums.map((a) => (
-            <Link key={a.id} href={`/studio/albums/${a.id}`} className="card flex items-center gap-4 p-3 hover:border-accent">
+            <Link key={a.id} href={`/studio/albums/${a.id}`} className="card flex items-center gap-4 p-3 transition-[transform,box-shadow] duration-100 hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[7px_7px_0_var(--accent)]">
               <Cover albumId={a.id} coverKey={a.coverKey} title={a.title} size="sm" />
               <div className="min-w-0">
-                <div className="truncate font-medium">{a.title}</div>
+                <div className="truncate font-mono font-bold">{a.title}</div>
                 <div className="text-sm text-muted">
                   {a._count.tracks} tracks · {formatEur(a.priceCents)} · {a.published ? "Published" : "Draft"}
                 </div>
