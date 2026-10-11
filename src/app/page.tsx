@@ -39,7 +39,12 @@ export default async function Home() {
         </div>
       </section>
 
-      <h2 className="h2 mb-6 border-b-2 border-fg pb-2">albums</h2>
+      <div className="mb-6 flex items-baseline justify-between gap-3 border-b-2 border-fg pb-2">
+        <h2 className="h2">albums</h2>
+        <Link href="/albums" className="link font-mono text-sm">
+          browse and buy →
+        </Link>
+      </div>
       {albums.length === 0 ? (
         <p className="text-muted">No albums published yet.</p>
       ) : (

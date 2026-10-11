@@ -1,0 +1,27 @@
+import { currentUser } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { serveFile } from "@/lib/http";
+import { ensurePreview } from "@/lib/previews";
+
+/** The album's 15-second preview. Public for published albums. */
+export async function GET(req: Request, { params }: { params: Promise<{ albumId: string }> }) {
+  const { albumId } = await params;
+  const album = await db.album.findUnique({
+    where: { id: albumId },
+    include: { tracks: { select: { id: true, number: true, title: true, durationSec: true, status: true, files: { select: { quality: true, key: true, bytes: true } } } } },
+  });
+  if (!album) return new Response("Not found", { status: 404 });
+  if (!album.published) {
+    const user = await currentUser();
+    if (user?.artist?.id !== album.artistId) return new Response("Not found", { status: 404 });
+  }
+
+  try {
+    const clip = await ensurePreview(album);
+    if (!clip) return new Response("This album has no tracks yet", { status: 404 });
+    return serveFile(req, { key: clip.key, mime: "audio/mp4", bytes: clip.bytes });
+  } catch (e) {
+    console.error(`Preview for album ${albumId} failed`, e);
+    return new Response("Could not prepare the preview", { status: 500 });
+  }
+}

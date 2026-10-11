@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { MIN_PLAY_SECONDS } from "@/lib/constants";
+import { PLAYER_EVENT, PREVIEW_EVENT } from "./preview";
 
 export type PlayerTrack = {
   id: string;
@@ -58,6 +59,13 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const current = queue[index] ?? null;
 
   useEffect(() => setQuality(readPref()), []);
+
+  // A preview starting pauses the main player.
+  useEffect(() => {
+    const pause = () => audio.current?.pause();
+    window.addEventListener(PREVIEW_EVENT, pause);
+    return () => window.removeEventListener(PREVIEW_EVENT, pause);
+  }, []);
 
   const load = useCallback((track: PlayerTrack, q: QualityPref, resumeAt = 0) => {
     const el = audio.current;
@@ -139,7 +147,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       <audio
         ref={audio}
         preload="auto"
-        onPlay={() => setPlaying(true)}
+        onPlay={() => {
+          setPlaying(true);
+          window.dispatchEvent(new Event(PLAYER_EVENT));
+        }}
         onPause={() => setPlaying(false)}
         onTimeUpdate={onTimeUpdate}
         onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}

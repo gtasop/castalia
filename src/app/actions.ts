@@ -8,6 +8,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createSession, currentUser, destroySession, hashPassword, requireAdmin, requireArtist, requireUser, verifyPassword } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { isGenre, MAX_GENRES } from "@/lib/genres";
 import { MIN_ALBUM_CENTS, MIN_DONATION_CENTS, MIN_SUBSCRIPTION_CENTS, parseEuroInput } from "@/lib/money";
 import {
   artistOnboardingUrl,
@@ -19,6 +20,7 @@ import {
   startSubscription,
 } from "@/lib/payments";
 import { createPayoutRun, deletePayoutRun, payRun } from "@/lib/payouts/run";
+import { latestStart } from "@/lib/previews";
 import { deletePrefix, putFile } from "@/lib/storage";
 import { isTheme, setThemeCookie, themePreference, toThemeEnum, toThemePref } from "@/lib/theme";
 
@@ -117,6 +119,8 @@ export async function donate(form: FormData) {
 }
 
 // ------------------------------------------------------------------ studio
+// Album edits redirect back to the editor (rather than only revalidating)
+// so the URL loses any ?error= left from an earlier failed save.
 
 const albumSchema = z.object({
   title: z.string().trim().min(1, "Enter a title").max(200),
@@ -147,8 +151,40 @@ export async function updateAlbum(form: FormData) {
   if (!parsed.success) fail(back, parsed.error!.issues[0].message);
   const price = parseEuroInput(form.get("price"));
   if (!price || price < MIN_ALBUM_CENTS) fail(back, "Album price must be at least €1.00");
-  await db.album.update({ where: { id: album.id }, data: { ...parsed.data!, priceCents: price! } });
-  revalidatePath(back);
+  const genres = [...new Set(form.getAll("genres"))].filter(isGenre);
+  if (genres.length > MAX_GENRES) fail(back, `Pick up to ${MAX_GENRES} genres`);
+  await db.album.update({ where: { id: album.id }, data: { ...parsed.data!, priceCents: price!, genres } });
+  redirect(back);
+}
+
+/** "1:05", "65" or "" (= 0) to seconds; null if invalid. */
+function parseStart(v: FormDataEntryValue | null): number | null {
+  const s = String(v ?? "").trim();
+  if (!s) return 0;
+  const m = /^(?:(\d+):)?(\d+)$/.exec(s);
+  if (!m) return null;
+  if (m[1] !== undefined && Number(m[2]) > 59) return null;
+  return m[1] !== undefined ? Number(m[1]) * 60 + Number(m[2]) : Number(m[2]);
+}
+
+export async function setPreview(form: FormData) {
+  const album = await ownAlbum(String(form.get("albumId")));
+  const back = `/studio/albums/${album.id}`;
+  const trackId = String(form.get("trackId") ?? "");
+  if (!trackId) {
+    // Back to automatic: first track, from 30 seconds in.
+    await db.album.update({ where: { id: album.id }, data: { previewTrackId: null, previewStartSec: 0 } });
+    redirect(back);
+    return;
+  }
+  const track = album.tracks.find((t) => t.id === trackId && t.status === "READY");
+  if (!track) fail(back, "Pick a finished track for the preview");
+  const start = parseStart(form.get("start"));
+  if (start === null) fail(back, "Write the preview start as minutes:seconds, for example 1:05");
+  const max = latestStart(track!.durationSec);
+  if (start! > max) fail(back, `The preview must start by ${Math.floor(max / 60)}:${String(max % 60).padStart(2, "0")} to fit 15 seconds`);
+  await db.album.update({ where: { id: album.id }, data: { previewTrackId: track!.id, previewStartSec: start! } });
+  redirect(back);
 }
 
 export async function setPublished(form: FormData) {
@@ -156,7 +192,7 @@ export async function setPublished(form: FormData) {
   const publish = form.get("publish") === "1";
   if (publish && !album.tracks.some((t) => t.status === "READY")) fail(`/studio/albums/${album.id}`, "Add at least one finished track first");
   await db.album.update({ where: { id: album.id }, data: { published: publish, releasedAt: publish ? (album.releasedAt ?? new Date()) : album.releasedAt } });
-  revalidatePath(`/studio/albums/${album.id}`);
+  redirect(`/studio/albums/${album.id}`);
 }
 
 export async function renameTrack(form: FormData) {
@@ -164,7 +200,7 @@ export async function renameTrack(form: FormData) {
   const trackId = String(form.get("trackId"));
   const title = String(form.get("title") ?? "").trim().slice(0, 200);
   if (title && album.tracks.some((t) => t.id === trackId)) await db.track.update({ where: { id: trackId }, data: { title } });
-  revalidatePath(`/studio/albums/${album.id}`);
+  redirect(`/studio/albums/${album.id}`);
 }
 
 export async function deleteTrack(form: FormData) {
@@ -177,7 +213,7 @@ export async function deleteTrack(form: FormData) {
   await deletePrefix(`tracks/${trackId}/`);
   const rest = album.tracks.filter((t) => t.id !== trackId).sort((a, b) => a.number - b.number);
   for (const [i, t] of rest.entries()) await db.track.update({ where: { id: t.id }, data: { number: i + 1 } });
-  revalidatePath(`/studio/albums/${album.id}`);
+  redirect(`/studio/albums/${album.id}`);
 }
 
 const COVER_TYPES: Record<string, string> = { "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp" };
@@ -199,7 +235,7 @@ export async function uploadCover(form: FormData) {
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
-  revalidatePath(back);
+  redirect(back);
 }
 
 export async function updateArtistProfile(form: FormData) {

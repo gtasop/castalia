@@ -38,6 +38,9 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
                 <Logo />
                 <span className="font-mono text-xl font-bold tracking-tighter">castalia</span>
               </Link>
+              <Link href="/albums" className={navLink}>
+                browse
+              </Link>
               <Link href="/transparency" className={navLink}>
                 where the money goes
               </Link>
