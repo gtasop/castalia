@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Cover, Notice } from "@/components/ui";
-import { RefreshWhileProcessing, TrackUploader } from "@/components/uploader";
+import { CoverUploader, RefreshWhileProcessing, TrackUploader } from "@/components/uploader";
 import { qualityLabel } from "@/lib/audio";
 import { requireArtist } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -42,11 +42,7 @@ export default async function EditAlbumPage({ params, searchParams }: { params: 
       <div className="grid gap-6 md:grid-cols-[220px_1fr]">
         <div className="space-y-3">
           <Cover albumId={album.id} coverKey={album.coverKey} title={album.title} />
-          <form action={uploadCover} className="space-y-2">
-            <input type="hidden" name="albumId" value={album.id} />
-            <input type="file" name="cover" accept="image/jpeg,image/png,image/webp" className="w-full text-xs" required />
-            <button className="btn-ghost w-full">Upload cover</button>
-          </form>
+          <CoverUploader albumId={album.id} action={uploadCover} />
         </div>
 
         <form action={updateAlbum} className="card space-y-3">

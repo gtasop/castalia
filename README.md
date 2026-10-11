@@ -42,7 +42,7 @@ Requirements: Node 20+. Postgres and ffmpeg come from npm, so nothing else needs
 
 ```bash
 npm install
-cp .env.example .env
+cp .env.example .env  # Windows cmd: copy .env.example .env
 npm run db            # local Postgres on :5433, keep it running
 npx prisma migrate dev
 npm run seed          # demo accounts + albums with generated audio
