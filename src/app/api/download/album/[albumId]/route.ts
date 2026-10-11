@@ -1,44 +1,53 @@
-import archiver from "archiver";
-import { PassThrough, Readable } from "node:stream";
 import { ownsAlbum } from "@/lib/access";
 import { currentUser } from "@/lib/auth";
-import { downloadFormat } from "@/lib/constants";
 import { db } from "@/lib/db";
-import { safeFileName } from "@/lib/http";
-import { readFile } from "@/lib/storage";
+import { serveFile } from "@/lib/http";
+import { isDownloadFormat, loadAlbumForZip, requestZip, zipPlan } from "@/lib/zips";
 
-/** The whole album as a zip, DRM-free. */
+/**
+ * The whole album as a zip, DRM-free. Served from storage once it has been
+ * built; the first request starts the build and shows a page that refreshes
+ * until the zip is ready.
+ */
 export async function GET(req: Request, { params }: { params: Promise<{ albumId: string }> }) {
   const { albumId } = await params;
   const user = await currentUser();
   if (!(await ownsAlbum(user, albumId))) return new Response("Buy the album to download it", { status: 403 });
-  const album = await db.album.findUnique({
-    where: { id: albumId },
-    include: { artist: true, tracks: { where: { status: "READY" }, orderBy: { number: "asc" }, include: { files: true } } },
-  });
+  const album = await loadAlbumForZip(albumId);
   if (!album) return new Response("Not found", { status: 404 });
 
-  const fmtKey = new URL(req.url).searchParams.get("format") ?? "flac";
-  const fmt = downloadFormat(fmtKey);
-  const folder = `${safeFileName(album.artist.name)} - ${safeFileName(album.title)}`;
+  const requested = new URL(req.url).searchParams.get("format") ?? "flac";
+  const format = isDownloadFormat(requested) ? requested : "flac";
+  const { entries, fingerprint, downloadName } = zipPlan(album, format);
+  if (entries.length === 0) return new Response("This album has no tracks to download yet", { status: 404 });
 
-  // Audio is already compressed, so the zip only stores it.
-  const zip = archiver("zip", { store: true });
-  const out = new PassThrough();
-  zip.pipe(out);
-  (async () => {
-    for (const t of album.tracks) {
-      const file = fmt.quality.map((q) => t.files.find((f) => f.quality === q)).find(Boolean);
-      if (!file) continue;
-      zip.append(await readFile(file.key), { name: `${folder}/${String(t.number).padStart(2, "0")} ${safeFileName(t.title)}.${fmt.ext}` });
-    }
-    await zip.finalize();
-  })().catch((e) => out.destroy(e));
+  const cached = await db.albumZip.findUnique({ where: { albumId_format: { albumId, format } } });
+  if (cached && cached.fingerprint === fingerprint) {
+    return serveFile(req, { key: cached.key, mime: "application/zip", bytes: Number(cached.bytes) }, { downloadName });
+  }
 
-  return new Response(Readable.toWeb(out) as ReadableStream, {
-    headers: {
-      "Content-Type": "application/zip",
-      "Content-Disposition": `attachment; filename="${folder} (${fmtKey.toUpperCase()}).zip"`,
-    },
+  const state = requestZip(album, format);
+  const back = `/album/${albumId}`;
+  return state.status === "failed"
+    ? page("Download failed", `<p>${escapeHtml(state.error)}</p><p><a href="?format=${format}">Try again</a> · <a href="${back}">Back to the album</a></p>`)
+    : page(
+        "Preparing your download",
+        `<p>We are putting <strong>${escapeHtml(album.title)}</strong> together. This happens once per album and format, and the download starts by itself when it is ready.</p><p><a href="${back}">Back to the album</a></p>`,
+        3,
+      );
+}
+
+function page(title: string, body: string, refreshSeconds?: number) {
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+${refreshSeconds ? `<meta http-equiv="refresh" content="${refreshSeconds}">` : ""}<title>${title} · Castalia</title>
+<style>:root{color-scheme:light dark}body{font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 16px;line-height:1.5}a{color:#1f6f78}@media(prefers-color-scheme:dark){a{color:#5fb3bb}}</style>
+</head><body><h1>${title}</h1>${body}</body></html>`;
+  return new Response(html, {
+    status: refreshSeconds ? 202 : 500,
+    headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
   });
+}
+
+function escapeHtml(s: string) {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }

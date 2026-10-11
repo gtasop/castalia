@@ -1,4 +1,4 @@
-import { DeleteObjectsCommand, GetObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, DeleteObjectsCommand, GetObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, rm, stat } from "node:fs/promises";
@@ -81,6 +81,14 @@ export async function readFile(key: string, range?: { start: number; end: number
 
 export function usesSignedUrls() {
   return driver === "s3";
+}
+
+export async function deleteFile(key: string) {
+  if (driver === "s3") {
+    await client().send(new DeleteObjectCommand({ Bucket: process.env.S3_BUCKET, Key: key }));
+    return;
+  }
+  await rm(localPath(key), { force: true });
 }
 
 /** Deletes every file under a prefix such as "tracks/<id>/". */

@@ -61,22 +61,46 @@ function outputsFor(p: Probe): Output[] {
   return outs;
 }
 
+/** MD5 of the decoded audio samples, so files in different containers compare equal. */
+async function pcmHash(file: string): Promise<string> {
+  const { stdout } = await run(ffmpegPath as string, ["-v", "error", "-i", file, "-map", "0:a:0", "-c:a", "pcm_s32le", "-f", "md5", "-"]);
+  return stdout.trim();
+}
+
 /**
  * Transcodes an uploaded master into every streaming/download format and
  * stores the results. Updates the track row with status and metadata.
+ *
+ * The master itself is only stored when none of the FLAC outputs decodes to
+ * exactly the same samples. For most uploads (16/44.1, or hi-res up to
+ * 24/192) a FLAC output is a bit-perfect copy, and keeping the master as
+ * well would add ~40% to the album's storage.
  */
 export async function processTrack(trackId: string, masterFile: string) {
   const work = await mkdtemp(path.join(os.tmpdir(), "castalia-"));
   try {
     const p = await probe(masterFile);
     if (!p.lossless) throw new Error("Please upload a lossless master (FLAC, WAV, AIFF or ALAC).");
-    await putFile(`tracks/${trackId}/master${path.extname(masterFile).toLowerCase()}`, masterFile, "application/octet-stream");
 
+    const produced: { out: Output; file: string }[] = [];
     for (const out of outputsFor(p)) {
       const file = path.join(work, `${out.quality.toLowerCase()}.${out.ext}`);
       await run(ffmpegPath as string, ["-y", "-v", "error", "-i", masterFile, "-map", "0:a:0", "-map_metadata", "-1", ...out.args, file], {
         maxBuffer: 1 << 24,
       });
+      produced.push({ out, file });
+    }
+
+    const masterHash = await pcmHash(masterFile);
+    let preserved = false;
+    for (const { out, file } of produced) {
+      if (out.ext === "flac" && (await pcmHash(file)) === masterHash) {
+        preserved = true;
+        break;
+      }
+    }
+
+    for (const { out, file } of produced) {
       const key = `tracks/${trackId}/${path.basename(file)}`;
       await putFile(key, file, out.mime);
       const { size } = await stat(file);
@@ -87,9 +111,16 @@ export async function processTrack(trackId: string, masterFile: string) {
         update: data,
       });
     }
+
+    let masterKey: string | null = null;
+    if (!preserved) {
+      masterKey = `tracks/${trackId}/master${path.extname(masterFile).toLowerCase()}`;
+      await putFile(masterKey, masterFile, "application/octet-stream");
+    }
+
     await db.track.update({
       where: { id: trackId },
-      data: { status: "READY", error: null, durationSec: p.durationSec, masterBitDepth: p.bitDepth, masterSampleRate: p.sampleRate },
+      data: { status: "READY", error: null, durationSec: p.durationSec, masterBitDepth: p.bitDepth, masterSampleRate: p.sampleRate, masterKey },
     });
   } catch (e) {
     await db.track.update({

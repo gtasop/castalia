@@ -36,6 +36,24 @@ Artists upload lossless masters (FLAC, WAV, AIFF or ALAC). ffmpeg transcodes eac
 
 Listeners choose Hi-Res, Lossless or Data saver in the player.
 
+The uploaded master is only stored when none of the FLAC files is a bit-exact copy of it (checked by comparing the decoded samples). That is the case for 16-bit/48 kHz or 32-bit float masters. For the usual 16/44.1 and hi-res uploads, a FLAC file already preserves every sample, so storing the master too would add about 40% to the album's storage.
+
+Album downloads are zips, built the first time a buyer asks for one in a given format. The zip is kept in storage and later downloads are served straight from there, so albums that never sell take up no extra space. Changing an album's tracks or titles makes its cached zips stale, and they are rebuilt on the next download.
+
+## Hosting costs
+
+Estimate for a 45-minute, 11-track album on Cloudflare R2 ($0.015 per GB-month, no egress fees):
+
+| Album | Stored | Per month |
+| --- | --- | --- |
+| CD quality (16/44.1) | ~0.5 GB | ~$0.008 |
+| Hi-res 24/96 | ~1.4 GB | ~$0.022 |
+| Hi-res 24/192 | ~2.2 GB | ~$0.033 |
+
+Streaming only costs R2's read requests: about $0.00001 for a full album play, in any quality. The same play from Amazon S3, which charges ~$0.09/GB for egress, would cost $0.03 (lossless) to $0.15 (24/192). For a heavy hi-res listener that is more than the 20% hosting cap on a subscription. **R2, or another provider without egress fees, is what makes the cap work.**
+
+The hosting bill is therefore mostly fixed costs (the app server and database) plus storage that grows with the catalogue. Example: 1,000 albums and 1,000 subscribers cost about €60 a month, or €0.06 per subscriber, so artists receive ~99% of each net subscription.
+
 ## Running it locally
 
 Requirements: Node 20+. Postgres and ffmpeg come from npm, so nothing else needs to be installed.
@@ -72,7 +90,7 @@ Demo accounts are listed at the top of [`scripts/seed.ts`](scripts/seed.ts).
   - `account.updated`
 
   Turn on Stripe Tax and set `STRIPE_TAX=1` to charge the correct VAT for each customer's country (EU OSS).
-- **Transcoding:** runs in the web process after an upload. With many uploads, move `processTrack` to a background worker.
+- **Transcoding and zip building:** both run in the web process (after an upload, and on the first download of an album zip). On serverless hosting with short time limits, or with many uploads, move `processTrack` and `requestZip` to a background worker.
 
 ## Scripts
 
