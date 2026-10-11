@@ -41,7 +41,9 @@ export default async function EditAlbumPage({ params, searchParams }: { params: 
 
       <div className="grid gap-6 md:grid-cols-[220px_1fr]">
         <div className="space-y-3">
-          <Cover albumId={album.id} coverKey={album.coverKey} title={album.title} />
+          <div className="shadow-[5px_5px_0_var(--fg)]">
+            <Cover albumId={album.id} coverKey={album.coverKey} title={album.title} />
+          </div>
           <CoverUploader albumId={album.id} action={uploadCover} />
         </div>
 

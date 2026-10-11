@@ -15,12 +15,19 @@ enum Role {
   ADMIN
 }
 
+enum Theme {
+  SYSTEM // follow the device's light/dark setting
+  LIGHT
+  DARK
+}
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
   name         String
   passwordHash String
   role         Role     @default(LISTENER)
+  theme        Theme    @default(SYSTEM)
   createdAt    DateTime @default(now())
 
   sessions     Session[]

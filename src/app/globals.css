@@ -1,27 +1,33 @@
 @import "tailwindcss";
 
+/* Zine layout, Signal colours: black ink, white paper, one burnt orange.
+   Thick outlines and hard offset shadows instead of soft depth.
+
+   Each token is light-dark(light, dark). Which one applies follows
+   color-scheme: the device setting by default, or the user's choice via
+   data-theme on <html>. */
 :root {
-  --bg: #f7f6f2;
-  --surface: #ffffff;
-  --fg: #1a1a18;
-  --muted: #6b6a64;
-  --line: #e4e2db;
-  --accent: #1f6f78;
-  --accent-fg: #ffffff;
-  --danger: #b3261e;
+  color-scheme: light dark;
+  --bg: light-dark(#ffffff, #0f0f0f);
+  --surface: light-dark(#ffffff, #181818);
+  --fg: light-dark(#111111, #f2f2f2);
+  --muted: light-dark(#6b6b6b, #a3a3a3);
+  --line: light-dark(#e2e2e2, #2e2e2e);
+  --accent: light-dark(#c2410c, #f97316);
+  --accent-fg: light-dark(#ffffff, #0f0f0f);
+  --danger: light-dark(#d42a25, #ff4d42);
+  --bar: light-dark(#111111, #000000);
+  --bar-fg: #f2f2f2;
+  --bar-muted: #a3a3a3;
+  --bar-edge: light-dark(#111111, #f2f2f2);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #121311;
-    --surface: #1b1c1a;
-    --fg: #ecebe6;
-    --muted: #9b9a93;
-    --line: #2c2d2a;
-    --accent: #5fb3bb;
-    --accent-fg: #0d1a1b;
-    --danger: #f2b8b5;
-  }
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 @theme inline {
@@ -33,8 +39,11 @@
   --color-accent: var(--accent);
   --color-accent-fg: var(--accent-fg);
   --color-danger: var(--danger);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-bar: var(--bar);
+  --color-bar-fg: var(--bar-fg);
+  --color-bar-muted: var(--bar-muted);
+  --font-sans: var(--font-inter-tight);
+  --font-mono: var(--font-space-mono);
 }
 
 body {
@@ -42,29 +51,65 @@ body {
   color: var(--fg);
 }
 
+::selection {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
 @layer components {
+  .btn,
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 border-2 border-fg px-4 py-2 font-mono text-sm font-bold transition-[transform,box-shadow] duration-100;
+  }
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-medium text-accent-fg transition hover:opacity-90 disabled:opacity-50;
+    @apply bg-fg text-bg shadow-[3px_3px_0_var(--accent)];
   }
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 rounded-full border border-line px-4 py-2 text-sm font-medium transition hover:bg-surface disabled:opacity-50;
+    @apply bg-surface text-fg shadow-[3px_3px_0_var(--fg)];
+  }
+  .btn:hover,
+  .btn-ghost:hover {
+    @apply -translate-x-px -translate-y-px;
+  }
+  .btn:hover {
+    @apply shadow-[4px_4px_0_var(--accent)];
+  }
+  .btn-ghost:hover {
+    @apply shadow-[4px_4px_0_var(--fg)];
+  }
+  .btn:active,
+  .btn-ghost:active {
+    @apply translate-x-[3px] translate-y-[3px] shadow-none;
+  }
+  .btn:disabled,
+  .btn-ghost:disabled {
+    @apply translate-0 opacity-50;
   }
   .input {
-    @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-accent;
+    @apply w-full border-2 border-fg bg-surface px-3 py-2 text-sm outline-none focus:shadow-[3px_3px_0_var(--accent)];
   }
   .label {
-    @apply mb-1 block text-sm text-muted;
+    @apply mb-1 block font-mono text-xs text-muted;
   }
   .card {
-    @apply rounded-2xl border border-line bg-surface p-5;
+    @apply border-2 border-fg bg-surface p-5 shadow-[5px_5px_0_var(--fg)];
   }
   .h1 {
-    @apply text-3xl font-semibold tracking-tight;
+    @apply font-mono text-3xl font-bold tracking-tighter;
   }
   .h2 {
-    @apply text-lg font-semibold;
+    @apply font-mono text-lg font-bold tracking-tight;
   }
   .link {
-    @apply text-accent underline-offset-4 hover:underline;
+    @apply text-fg underline decoration-accent decoration-2 underline-offset-4 hover:bg-accent hover:text-accent-fg hover:no-underline;
+  }
+  .tag {
+    @apply inline-block bg-accent px-1.5 font-mono text-[10px] font-bold uppercase leading-4 text-accent-fg;
+  }
+  .meter {
+    @apply h-2.5 border-2 border-fg bg-surface;
+  }
+  .meter > div {
+    @apply h-full bg-accent;
   }
 }

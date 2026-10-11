@@ -1,8 +1,10 @@
 import Link from "next/link";
+import { ThemePicker } from "@/components/theme";
 import { Notice } from "@/components/ui";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { formatEur } from "@/lib/money";
+import { toThemePref } from "@/lib/theme";
 import { cancel, resume } from "../actions";
 
 const dateFmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric" });
@@ -96,8 +98,8 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
                           {p._count._all} {p._count._all === 1 ? "play" : "plays"} · {Math.round(share * 100)}%
                         </span>
                       </div>
-                      <div className="mt-1 h-1.5 rounded-full bg-line">
-                        <div className="h-1.5 rounded-full bg-accent" style={{ width: `${share * 100}%` }} />
+                      <div className="meter mt-1">
+                        <div style={{ width: `${share * 100}%` }} />
                       </div>
                     </li>
                   );
@@ -151,6 +153,12 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
           </div>
         </section>
       )}
+
+      <section className="card">
+        <h2 className="h2">Appearance</h2>
+        <p className="mt-1 text-sm text-muted">System follows your device&apos;s light or dark setting. Your choice is saved to your account.</p>
+        <ThemePicker theme={toThemePref(user.theme)} />
+      </section>
 
       <section>
         <h2 className="h2">Your albums</h2>

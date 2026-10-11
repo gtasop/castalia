@@ -48,7 +48,7 @@ export default async function AlbumPage({
 
   return (
     <div className="grid gap-8 md:grid-cols-[280px_1fr]">
-      <div>
+      <div className="self-start shadow-[6px_6px_0_var(--fg)]">
         <Cover albumId={album.id} coverKey={album.coverKey} title={album.title} />
       </div>
       <div>
