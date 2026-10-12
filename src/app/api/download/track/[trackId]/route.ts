@@ -3,9 +3,11 @@ import { currentUser } from "@/lib/auth";
 import { downloadFormat } from "@/lib/constants";
 import { db } from "@/lib/db";
 import { safeFileName, serveFile } from "@/lib/http";
+import { isId } from "@/lib/ids";
 
 export async function GET(req: Request, { params }: { params: Promise<{ trackId: string }> }) {
   const { trackId } = await params;
+  if (!isId(trackId)) return new Response("Not found", { status: 404 });
   const user = await currentUser();
   const track = await db.track.findUnique({ where: { id: trackId }, include: { album: { include: { artist: true } }, files: true } });
   if (!track) return new Response("Not found", { status: 404 });

@@ -17,10 +17,6 @@ import { deleteFile, putFile, readFile } from "./storage";
 // Zips are only built for albums that are actually downloaded, so albums
 // nobody buys add no storage.
 
-export function isDownloadFormat(v: string | null): v is DownloadFormat {
-  return !!v && v in DOWNLOAD_FORMATS;
-}
-
 export async function loadAlbumForZip(albumId: string) {
   return db.album.findUnique({
     where: { id: albumId },

@@ -1,13 +1,16 @@
 import Link from "next/link";
+import { ActionForm } from "@/components/action-form";
 import { Cover, Notice, Stat } from "@/components/ui";
 import { requireArtist } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { formatEur } from "@/lib/money";
 import { createAlbum, updateArtistProfile } from "../actions";
 
-export default async function StudioPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
-  const { error } = await searchParams;
-  const { artist } = await requireArtist();
+export const metadata = { title: "Studio" };
+
+export default async function StudioPage({ searchParams }: { searchParams: Promise<{ saved?: string }> }) {
+  const { saved } = await searchParams;
+  const { artist } = await requireArtist("/studio");
   const [albums, earned, paid, playsThisMonth] = await Promise.all([
     db.album.findMany({ where: { artistId: artist.id }, orderBy: { createdAt: "desc" }, include: { _count: { select: { tracks: true } } } }),
     db.artistEarning.aggregate({ where: { artistId: artist.id }, _sum: { totalCents: true } }),
@@ -21,7 +24,7 @@ export default async function StudioPage({ searchParams }: { searchParams: Promi
         <h1 className="h1">Studio</h1>
         <p className="mt-1 text-muted">{artist.name}</p>
       </div>
-      <Notice error={error} />
+      <Notice success={saved === "profile" ? "Profile saved." : undefined} />
 
       <section className="grid gap-4 sm:grid-cols-3">
         <Stat label="Counted plays this month" value={String(playsThisMonth)} hint="Plays of 30 seconds or more" />
@@ -47,33 +50,36 @@ export default async function StudioPage({ searchParams }: { searchParams: Promi
             </Link>
           ))}
         </div>
+        {albums.length === 0 && <p className="mt-2 text-sm text-muted">No albums yet. Create your first one below, then add tracks to it.</p>}
 
-        <form action={createAlbum} className="card mt-4 grid gap-3 sm:grid-cols-[1fr_140px_auto] sm:items-end">
-          <div>
-            <label className="label" htmlFor="title">New album title</label>
-            <input className="input" id="title" name="title" required />
+        <ActionForm action={createAlbum} className="card mt-4 space-y-3">
+          <div className="grid gap-3 sm:grid-cols-[1fr_140px_auto] sm:items-end">
+            <div>
+              <label className="label" htmlFor="title">New album title</label>
+              <input className="input" id="title" name="title" maxLength={200} required />
+            </div>
+            <div>
+              <label className="label" htmlFor="price">Price (EUR)</label>
+              <input className="input" id="price" name="price" inputMode="decimal" defaultValue="9.00" required />
+            </div>
+            <button className="btn">Create album</button>
           </div>
-          <div>
-            <label className="label" htmlFor="price">Price (EUR)</label>
-            <input className="input" id="price" name="price" inputMode="decimal" defaultValue="9.00" required />
-          </div>
-          <button className="btn">Create album</button>
-        </form>
+        </ActionForm>
       </section>
 
       <section>
         <h2 className="h2">Profile</h2>
-        <form action={updateArtistProfile} className="card mt-4 space-y-3">
+        <ActionForm action={updateArtistProfile} className="card mt-4 space-y-3">
           <div>
             <label className="label" htmlFor="name">Artist name</label>
-            <input className="input" id="name" name="name" defaultValue={artist.name} required />
+            <input className="input" id="name" name="name" defaultValue={artist.name} maxLength={100} required />
           </div>
           <div>
             <label className="label" htmlFor="bio">Bio</label>
-            <textarea className="input" id="bio" name="bio" rows={3} defaultValue={artist.bio} />
+            <textarea className="input" id="bio" name="bio" rows={3} defaultValue={artist.bio} maxLength={2000} />
           </div>
           <button className="btn-ghost">Save profile</button>
-        </form>
+        </ActionForm>
       </section>
     </div>
   );

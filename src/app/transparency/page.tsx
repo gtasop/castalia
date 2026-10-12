@@ -1,13 +1,16 @@
+import { ActionForm } from "@/components/action-form";
 import { Notice, Stat } from "@/components/ui";
 import { db } from "@/lib/db";
 import { formatEur } from "@/lib/money";
 import { donate } from "../actions";
 
-export default async function TransparencyPage({ searchParams }: { searchParams: Promise<{ thanks?: string; error?: string }> }) {
+export const metadata = { title: "Where the money goes" };
+
+export default async function TransparencyPage({ searchParams }: { searchParams: Promise<{ thanks?: string }> }) {
   const sp = await searchParams;
   const [pay, sales, reserve, runs, earnings, paidOut] = await Promise.all([
     db.subscriptionPayment.aggregate({ where: { payoutRunId: { not: null } }, _sum: { grossCents: true, taxCents: true, feeCents: true, netCents: true } }),
-    db.purchase.aggregate({ _sum: { grossCents: true, netCents: true } }),
+    db.purchase.aggregate({ where: { payoutRunId: { not: null } }, _sum: { grossCents: true, netCents: true } }),
     db.reserveEntry.aggregate({ _sum: { amountCents: true } }),
     db.payoutRun.findMany({ orderBy: { month: "desc" }, include: { earnings: true, payments: { select: { netCents: true } } } }),
     db.artistEarning.aggregate({ _sum: { totalCents: true } }),
@@ -49,7 +52,7 @@ export default async function TransparencyPage({ searchParams }: { searchParams:
       {runs.length > 0 && (
         <section>
           <h2 className="h2">Month by month</h2>
-          <table className="mt-3 w-full text-sm tabular-nums">
+          <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[32rem] text-sm tabular-nums">
             <thead className="text-left text-muted">
               <tr>
                 <th className="py-2 font-normal">Month</th>
@@ -62,7 +65,7 @@ export default async function TransparencyPage({ searchParams }: { searchParams:
             <tbody className="divide-y divide-line">
               {runs.map((r) => (
                 <tr key={r.id}>
-                  <td className="py-2">{r.month}</td>
+                  <td className="py-2 whitespace-nowrap">{r.month}</td>
                   <td>{formatEur(r.payments.reduce((a, p) => a + p.netCents, 0))}</td>
                   <td>{formatEur(r.hostingCostCents)}</td>
                   <td>{formatEur(r.reserveDrawCents)}</td>
@@ -70,9 +73,9 @@ export default async function TransparencyPage({ searchParams }: { searchParams:
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
           <p className="mt-2 text-xs text-muted">
-            Lifetime: {formatEur(pay._sum.grossCents ?? 0)} in subscriptions, {formatEur(pay._sum.taxCents ?? 0)} VAT,{" "}
+            Lifetime, closed months: {formatEur(pay._sum.grossCents ?? 0)} in subscriptions, {formatEur(pay._sum.taxCents ?? 0)} VAT,{" "}
             {formatEur(pay._sum.feeCents ?? 0)} card fees. {formatEur(sales._sum.grossCents ?? 0)} in album sales.
           </p>
         </section>
@@ -81,11 +84,13 @@ export default async function TransparencyPage({ searchParams }: { searchParams:
       <section className="card max-w-xl">
         <h2 className="h2">Support the hosting reserve</h2>
         <p className="mt-1 text-sm text-muted">Donations only ever pay for hosting above the 20% cap, so artists keep at least 80%.</p>
-        <Notice error={sp.error} success={sp.thanks ? "Thank you for your donation!" : undefined} />
-        <form action={donate} className="mt-4 flex gap-2">
-          <input className="input" name="amount" inputMode="decimal" defaultValue="10.00" aria-label="Donation in euros" />
-          <button className="btn shrink-0">Donate</button>
-        </form>
+        <Notice success={sp.thanks ? "Thank you for your donation!" : undefined} />
+        <ActionForm action={donate} className="mt-4 space-y-3">
+          <div className="flex gap-2">
+            <input className="input" name="amount" inputMode="decimal" defaultValue="10.00" aria-label="Donation in euros" />
+            <button className="btn shrink-0">Donate</button>
+          </div>
+        </ActionForm>
       </section>
     </div>
   );

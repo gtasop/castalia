@@ -1,6 +1,10 @@
 export const MIN_SUBSCRIPTION_CENTS = 500;
 export const MIN_ALBUM_CENTS = 100;
 export const MIN_DONATION_CENTS = 100;
+export const MAX_SUBSCRIPTION_CENTS = 100_00;
+export const MAX_ALBUM_CENTS = 1_000_00;
+export const MAX_DONATION_CENTS = 10_000_00;
+export const MAX_HOSTING_CENTS = 1_000_000_00;
 
 export function vatRate(): number {
   const r = Number(process.env.VAT_RATE ?? "0.21");
@@ -21,21 +25,42 @@ export function formatEur(cents: number): string {
   return new Intl.NumberFormat("en-IE", { style: "currency", currency: "EUR" }).format(cents / 100);
 }
 
-/** Parse "7.50" or "7,50" into cents. Returns null if invalid. */
+/**
+ * Parse a euro amount typed by a person: "7", "7.5", "7,50", "€ 7.50".
+ * Whole euros up to 7 digits and at most 2 decimals, with "." or "," as the
+ * decimal mark. Anything else (thousands separators, "1e3", "0x10", other
+ * digit systems) returns null, so it can't be misread: "1,000" is refused
+ * rather than taken as €1.00.
+ */
 export function parseEuroInput(value: FormDataEntryValue | null): number | null {
   if (typeof value !== "string") return null;
-  const n = Number(value.trim().replace(",", "."));
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return Math.round(n * 100);
+  const m = /^(\d{1,7})(?:[.,](\d{1,2}))?$/.exec(value.replace(/[\s€]/g, ""));
+  if (!m) return null;
+  return Number(m[1]) * 100 + Number((m[2] ?? "0").padEnd(2, "0"));
+}
+
+export type AmountCheck = { cents: number; error?: undefined } | { cents?: undefined; error: string };
+
+/** Parse and range-check an amount, with a message for each way it can fail. */
+export function checkAmount(value: FormDataEntryValue | null, min: number, max: number, what = "amount"): AmountCheck {
+  const cents = parseEuroInput(value);
+  if (cents === null) return { error: `Enter the ${what} in euros, for example 7.50` };
+  if (cents < min) return { error: `The minimum ${what} is ${formatEur(min)}` };
+  if (cents > max) return { error: `The maximum ${what} is ${formatEur(max)}` };
+  return { cents };
 }
 
 export function monthKey(d: Date): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+export function isMonth(v: unknown): v is string {
+  return typeof v === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(v);
+}
+
 export function monthRange(month: string): { start: Date; end: Date } {
+  if (!isMonth(month)) throw new Error("Month must look like 2026-10");
   const [y, m] = month.split("-").map(Number);
-  if (!y || !m || m < 1 || m > 12) throw new Error(`invalid month ${month}`);
   return { start: new Date(Date.UTC(y, m - 1, 1)), end: new Date(Date.UTC(y, m, 1)) };
 }
 

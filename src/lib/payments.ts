@@ -1,6 +1,7 @@
 import "server-only";
 import Stripe from "stripe";
 import { db } from "./db";
+import { lock } from "./locks";
 import { addMonths, simulatedCardFee, vatIncluded } from "./money";
 
 // Payments run through Stripe when STRIPE_SECRET_KEY is set. Without it the
@@ -30,21 +31,48 @@ function amounts(grossCents: number, feeCents: number, reportedTax?: number | nu
 
 // ---------------------------------------------------------------- checkout
 
-/** Returns the URL to send the user to. */
+export class AlreadySubscribed extends Error {
+  constructor() {
+    super("You're already subscribed. Your subscription renews on its own.");
+  }
+}
+
+const isActive = (sub: { status: string; currentPeriodEnd: Date } | null) => !!sub && sub.status === "ACTIVE" && sub.currentPeriodEnd > new Date();
+
+/**
+ * Returns the URL to send the user to. Never charges twice for the same
+ * period: an active subscription is refused, or resumed if it was set to
+ * end, and concurrent requests (double clicks) are serialised per user.
+ */
 export async function startSubscription(userId: string, email: string, amountCents: number): Promise<string> {
   const s = stripe();
   if (!s) {
-    const now = new Date();
-    const end = addMonths(now, 1);
-    const sub = await db.subscription.upsert({
-      where: { userId },
-      create: { userId, amountCents, currentPeriodStart: now, currentPeriodEnd: end },
-      update: { amountCents, status: "ACTIVE", cancelAtPeriodEnd: false, currentPeriodStart: now, currentPeriodEnd: end },
+    return db.$transaction(async (tx) => {
+      await lock(tx, `subscribe:${userId}`);
+      const existing = await tx.subscription.findUnique({ where: { userId } });
+      if (isActive(existing)) {
+        if (!existing!.cancelAtPeriodEnd) throw new AlreadySubscribed();
+        await tx.subscription.update({ where: { userId }, data: { cancelAtPeriodEnd: false } });
+        return "/account?resumed=1";
+      }
+      const now = new Date();
+      const end = addMonths(now, 1);
+      const sub = await tx.subscription.upsert({
+        where: { userId },
+        create: { userId, amountCents, currentPeriodStart: now, currentPeriodEnd: end },
+        update: { amountCents, status: "ACTIVE", cancelAtPeriodEnd: false, currentPeriodStart: now, currentPeriodEnd: end },
+      });
+      await tx.subscriptionPayment.create({
+        data: { subscriptionId: sub.id, userId, periodStart: now, periodEnd: end, ...amounts(amountCents, simulatedCardFee(amountCents)) },
+      });
+      return "/account?welcome=1";
     });
-    await db.subscriptionPayment.create({
-      data: { subscriptionId: sub.id, userId, periodStart: now, periodEnd: end, ...amounts(amountCents, simulatedCardFee(amountCents)) },
-    });
-    return "/account?welcome=1";
+  }
+  const existing = await db.subscription.findUnique({ where: { userId } });
+  if (isActive(existing)) {
+    if (!existing!.cancelAtPeriodEnd) throw new AlreadySubscribed();
+    await resumeSubscription(userId);
+    return "/account?resumed=1";
   }
   const session = await s.checkout.sessions.create({
     mode: "subscription",
@@ -74,11 +102,12 @@ export async function startAlbumPurchase(userId: string, email: string, albumId:
   const album = await db.album.findUniqueOrThrow({ where: { id: albumId }, include: { artist: true } });
   const s = stripe();
   if (!s) {
-    await db.purchase.upsert({
-      where: { userId_albumId: { userId, albumId } },
-      create: { userId, albumId, ...amounts(album.priceCents, simulatedCardFee(album.priceCents)) },
-      update: {},
-    });
+    try {
+      await db.purchase.create({ data: { userId, albumId, ...amounts(album.priceCents, simulatedCardFee(album.priceCents)) } });
+    } catch (e) {
+      // A double click: the other request already recorded the purchase.
+      if ((e as { code?: string }).code !== "P2002") throw e;
+    }
     return `/album/${albumId}?bought=1`;
   }
   const session = await s.checkout.sessions.create({

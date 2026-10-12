@@ -8,7 +8,7 @@ import { connectPayouts } from "../../actions";
 
 export default async function PayoutsPage({ searchParams }: { searchParams: Promise<{ connected?: string }> }) {
   const { connected } = await searchParams;
-  const { artist: a } = await requireArtist();
+  const { artist: a } = await requireArtist("/studio/payouts");
   if (connected) await refreshArtistAccount(a.id);
   const artist = await db.artist.findUniqueOrThrow({ where: { id: a.id } });
   const earnings = await db.artistEarning.findMany({

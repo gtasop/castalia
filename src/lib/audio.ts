@@ -7,40 +7,75 @@ import ffmpegPath from "ffmpeg-static";
 import ffprobe from "ffprobe-static";
 import type { Quality } from "@prisma/client";
 import { db } from "./db";
-import { putFile } from "./storage";
+import { deletePrefix, putFile } from "./storage";
 
 const run = promisify(execFile);
 
-export type Probe = { durationSec: number; sampleRate: number; bitDepth: number; lossless: boolean };
+// Uploads are untrusted. ffmpeg only reads local files (no network or
+// playlist protocols) and only these containers and codecs are accepted.
+const CONTAINERS: Record<string, string> = {
+  flac: "flac",
+  wav: "wav",
+  w64: "w64",
+  aiff: "aiff",
+  wv: "wv",
+  "mov,mp4,m4a,3gp,3g2,mj2": "mov", // ALAC in .m4a
+};
+const LOSSLESS_CODECS = new Set([
+  "flac", "alac", "wavpack",
+  "pcm_s16le", "pcm_s16be", "pcm_s24le", "pcm_s24be", "pcm_s32le", "pcm_s32be",
+  "pcm_f32le", "pcm_f32be", "pcm_f64le", "pcm_f64be",
+]);
+const SAFE_INPUT = ["-protocol_whitelist", "file"];
+
+/** An error whose message is meant for the artist. */
+export class UploadError extends Error {}
+
+export type Probe = { durationSec: number; sampleRate: number; bitDepth: number; codec: string; demuxer: string };
 
 export async function probe(file: string): Promise<Probe> {
-  const { stdout } = await run(ffprobe.path, [
-    "-v", "error",
-    "-select_streams", "a:0",
-    "-show_entries", "stream=codec_name,sample_rate,bits_per_raw_sample,bits_per_sample,sample_fmt:format=duration",
-    "-of", "json",
-    file,
-  ]);
+  let stdout: string;
+  try {
+    ({ stdout } = await run(ffprobe.path, [
+      "-v", "error", ...SAFE_INPUT,
+      "-format_whitelist", "flac,wav,w64,aiff,wv,mov",
+      "-select_streams", "a:0",
+      "-show_entries", "stream=codec_name,sample_rate,bits_per_raw_sample,bits_per_sample,sample_fmt:format=duration,format_name",
+      "-of", "json",
+      file,
+    ]));
+  } catch {
+    throw new UploadError("We couldn't read this file. Upload a FLAC, WAV, AIFF or ALAC file.");
+  }
   const info = JSON.parse(stdout);
   const s = info.streams?.[0];
-  if (!s) throw new Error("No audio stream found");
-  const codec: string = s.codec_name;
-  const lossless = codec === "flac" || codec.startsWith("pcm_") || codec === "alac" || codec === "wavpack";
+  const demuxer = CONTAINERS[info.format?.format_name];
+  if (!s || !demuxer) throw new UploadError("We couldn't find audio in this file. Upload a FLAC, WAV, AIFF or ALAC file.");
+  if (!LOSSLESS_CODECS.has(s.codec_name)) {
+    throw new UploadError("This file isn't lossless (or uses a low-quality format like mu-law). Upload the lossless master: FLAC, WAV, AIFF or ALAC.");
+  }
   const fmtBits: Record<string, number> = { s16: 16, s16p: 16, s32: 24, s32p: 24, flt: 24, fltp: 24, s24: 24 };
   const bitDepth = Number(s.bits_per_raw_sample) || Number(s.bits_per_sample) || fmtBits[s.sample_fmt] || 16;
   return {
     durationSec: Number(info.format?.duration) || 0,
     sampleRate: Number(s.sample_rate) || 44100,
     bitDepth: Math.min(bitDepth, 24),
-    lossless,
+    codec: s.codec_name,
+    demuxer,
   };
+}
+
+/** Duration of audio that actually decodes (catches truncated files). */
+async function decodedDuration(file: string): Promise<number> {
+  const { stdout } = await run(ffprobe.path, ["-v", "error", ...SAFE_INPUT, "-f", "flac", "-show_entries", "format=duration", "-of", "csv=p=0", file]);
+  return Number(stdout.trim()) || 0;
 }
 
 type Output = { quality: Quality; ext: string; mime: string; args: string[]; bitDepth?: number; sampleRate?: number };
 
 function outputsFor(p: Probe): Output[] {
   const outs: Output[] = [];
-  const isHiRes = p.lossless && (p.sampleRate > 48000 || p.bitDepth > 16);
+  const isHiRes = p.sampleRate > 48000 || p.bitDepth > 16;
   if (isHiRes) {
     const sr = Math.min(p.sampleRate, 192000);
     const bits = p.bitDepth > 16 ? 24 : 16;
@@ -62,10 +97,12 @@ function outputsFor(p: Probe): Output[] {
 }
 
 /** MD5 of the decoded audio samples, so files in different containers compare equal. */
-async function pcmHash(file: string): Promise<string> {
-  const { stdout } = await run(ffmpegPath as string, ["-v", "error", "-i", file, "-map", "0:a:0", "-c:a", "pcm_s32le", "-f", "md5", "-"]);
+async function pcmHash(file: string, demuxer: string): Promise<string> {
+  const { stdout } = await run(ffmpegPath as string, ["-v", "error", ...SAFE_INPUT, "-f", demuxer, "-i", file, "-map", "0:a:0", "-c:a", "pcm_s32le", "-f", "md5", "-"]);
   return stdout.trim();
 }
+
+const trackExists = async (trackId: string) => !!(await db.track.findUnique({ where: { id: trackId }, select: { id: true } }));
 
 /**
  * Transcodes an uploaded master into every streaming/download format and
@@ -80,25 +117,39 @@ export async function processTrack(trackId: string, masterFile: string) {
   const work = await mkdtemp(path.join(os.tmpdir(), "castalia-"));
   try {
     const p = await probe(masterFile);
-    if (!p.lossless) throw new Error("Please upload a lossless master (FLAC, WAV, AIFF or ALAC).");
+    const input = [...SAFE_INPUT, "-f", p.demuxer, "-i", masterFile];
 
     const produced: { out: Output; file: string }[] = [];
     for (const out of outputsFor(p)) {
       const file = path.join(work, `${out.quality.toLowerCase()}.${out.ext}`);
-      await run(ffmpegPath as string, ["-y", "-v", "error", "-i", masterFile, "-map", "0:a:0", "-map_metadata", "-1", ...out.args, file], {
+      await run(ffmpegPath as string, ["-y", "-v", "error", ...input, "-map", "0:a:0", "-map_metadata", "-1", ...out.args, file], {
         maxBuffer: 1 << 24,
       });
       produced.push({ out, file });
     }
 
-    const masterHash = await pcmHash(masterFile);
+    // A truncated or corrupt file can claim a length in its header that the
+    // audio doesn't have. Trust what actually decoded.
+    const lossless = produced.find((x) => x.out.quality === "LOSSLESS")!;
+    const durationSec = await decodedDuration(lossless.file);
+    if (durationSec < 0.5) throw new UploadError("This file contains no playable audio.");
+    if (p.durationSec > 0 && Math.abs(p.durationSec - durationSec) > Math.max(1, p.durationSec * 0.02)) {
+      throw new UploadError(
+        `This file looks damaged or incomplete: it says it is ${Math.round(p.durationSec)} s long, but only ${Math.round(durationSec)} s of audio could be read. Upload it again.`,
+      );
+    }
+
+    const masterHash = await pcmHash(masterFile, p.demuxer);
     let preserved = false;
     for (const { out, file } of produced) {
-      if (out.ext === "flac" && (await pcmHash(file)) === masterHash) {
+      if (out.ext === "flac" && (await pcmHash(file, "flac")) === masterHash) {
         preserved = true;
         break;
       }
     }
+
+    // The artist may have deleted the track while it was converting.
+    if (!(await trackExists(trackId))) return;
 
     for (const { out, file } of produced) {
       const key = `tracks/${trackId}/${path.basename(file)}`;
@@ -120,15 +171,16 @@ export async function processTrack(trackId: string, masterFile: string) {
 
     await db.track.update({
       where: { id: trackId },
-      data: { status: "READY", error: null, durationSec: p.durationSec, masterBitDepth: p.bitDepth, masterSampleRate: p.sampleRate, masterKey },
+      data: { status: "READY", error: null, durationSec, masterBitDepth: p.bitDepth, masterSampleRate: p.sampleRate, masterKey },
     });
   } catch (e) {
-    await db.track.update({
-      where: { id: trackId },
-      data: { status: "FAILED", error: e instanceof Error ? e.message.slice(0, 500) : "Transcoding failed" },
-    });
+    const message = e instanceof UploadError ? e.message : "Converting this file failed. Try uploading it again, or as FLAC or WAV.";
+    if (!(e instanceof UploadError)) console.error(`processTrack ${trackId} failed`, e);
+    await db.track.updateMany({ where: { id: trackId }, data: { status: "FAILED", error: message } });
   } finally {
     await rm(work, { recursive: true, force: true });
+    // Nothing should be left behind for a track deleted mid-conversion.
+    if (!(await trackExists(trackId).catch(() => true))) await deletePrefix(`tracks/${trackId}/`).catch(() => {});
   }
 }
 

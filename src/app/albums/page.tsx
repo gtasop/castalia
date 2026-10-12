@@ -7,9 +7,11 @@ import { db } from "@/lib/db";
 import { genreFromSlug, genreSlug } from "@/lib/genres";
 import { formatEur } from "@/lib/money";
 import { previewVersion } from "@/lib/previews";
+import { escapeLike, searchKey } from "@/lib/search";
+import { cleanLine } from "@/lib/text";
 import { buyAlbum } from "../actions";
 
-export const metadata = { title: "Buy and download · Castalia" };
+export const metadata = { title: "Buy and download" };
 
 const SORTS = {
   new: { label: "newest", orderBy: { releasedAt: "desc" } },
@@ -19,6 +21,10 @@ const SORTS = {
 type Sort = keyof typeof SORTS;
 
 type Search = { q?: string; genre?: string; hires?: string; sort?: string };
+type RawSearch = { [K in keyof Search]?: string | string[] };
+
+/** Repeated parameters (?q=a&q=b) arrive as arrays; use the first. */
+const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
 /** Link to this page with some filters changed, keeping the rest. */
 function withParams(current: Search, change: Partial<Search>) {
@@ -28,19 +34,22 @@ function withParams(current: Search, change: Partial<Search>) {
   return s ? `/albums?${s}` : "/albums";
 }
 
-export default async function BrowseAlbumsPage({ searchParams }: { searchParams: Promise<Search> }) {
-  const sp = await searchParams;
+export default async function BrowseAlbumsPage({ searchParams }: { searchParams: Promise<RawSearch> }) {
+  const raw = await searchParams;
+  const sp: Search = { q: first(raw.q), genre: first(raw.genre), hires: first(raw.hires), sort: first(raw.sort) };
   const user = await currentUser();
-  const q = sp.q?.trim().slice(0, 100) ?? "";
+  const q = cleanLine(sp.q, 100);
+  const key = searchKey(q);
   const genre = genreFromSlug(sp.genre);
   const hiresOnly = sp.hires === "1";
-  const sort: Sort = sp.sort && sp.sort in SORTS ? (sp.sort as Sort) : "new";
+  const sort: Sort = sp.sort && Object.hasOwn(SORTS, sp.sort) ? (sp.sort as Sort) : "new";
 
   const where: Prisma.AlbumWhereInput = {
     published: true,
     AND: [
       { tracks: { some: { status: "READY" } } },
-      ...(q ? [{ OR: [{ title: { contains: q, mode: "insensitive" as const } }, { artist: { name: { contains: q, mode: "insensitive" as const } } }] }] : []),
+      // Accent- and case-insensitive; % and _ match literally.
+      ...(key ? [{ searchText: { contains: escapeLike(key) } }] : []),
       ...(genre ? [{ genres: { has: genre } }] : []),
       ...(hiresOnly ? [{ tracks: { some: { files: { some: { quality: "HIRES" as const } } } } }] : []),
     ],
@@ -57,7 +66,8 @@ export default async function BrowseAlbumsPage({ searchParams }: { searchParams:
     }),
     db.$queryRaw<{ genre: string; count: bigint }[]>`
       SELECT g AS genre, COUNT(*) AS count FROM "Album", unnest(genres) AS g
-      WHERE published GROUP BY g ORDER BY g`,
+      WHERE published AND EXISTS (SELECT 1 FROM "Track" t WHERE t."albumId" = "Album".id AND t.status = 'READY')
+      GROUP BY g ORDER BY g`,
     user ? db.purchase.findMany({ where: { userId: user.id }, select: { albumId: true } }) : [],
   ]);
   const ownedIds = new Set(owned.map((p) => p.albumId));
@@ -98,7 +108,7 @@ export default async function BrowseAlbumsPage({ searchParams }: { searchParams:
 
       {genreCounts.length > 0 && (
         <nav aria-label="Genres" className="flex flex-wrap gap-2">
-          <Link href={withParams(sp, { genre: undefined })} className={`${chip} ${!genre ? "bg-fg text-bg" : "hover:bg-line"}`}>
+          <Link href={withParams(sp, { genre: undefined })} aria-current={!genre ? "true" : undefined} className={`${chip} ${!genre ? "bg-fg text-bg" : "hover:bg-line"}`}>
             all genres
           </Link>
           {genreCounts.map((g) => (
@@ -108,7 +118,7 @@ export default async function BrowseAlbumsPage({ searchParams }: { searchParams:
               aria-current={genre === g.genre ? "true" : undefined}
               className={`${chip} ${genre === g.genre ? "bg-accent text-accent-fg" : "hover:bg-line"}`}
             >
-              {g.genre.toLowerCase()} <span className="opacity-70">{Number(g.count)}</span>
+              {g.genre.toLowerCase()} <span>· {Number(g.count)}</span>
             </Link>
           ))}
         </nav>
@@ -155,7 +165,7 @@ export default async function BrowseAlbumsPage({ searchParams }: { searchParams:
                 </div>
                 {a.genres.length > 0 && <p className="mt-1 truncate font-mono text-xs text-muted">{a.genres.map((g) => g.toLowerCase()).join(" / ")}</p>}
                 <div className="mt-3 flex flex-wrap items-center gap-3">
-                  <PreviewButton albumId={a.id} version={previewVersion(a)} small />
+                  <PreviewButton albumId={a.id} title={a.title} version={previewVersion(a)} small />
                   {isOwned ? (
                     <Link href={`/album/${a.id}#download`} className="btn px-2.5 py-1 text-xs">
                       {isOwner ? "your album" : "download"}

@@ -45,11 +45,12 @@ export function TrackUploader({ albumId }: { albumId: string }) {
 
   return (
     <div className="card">
-      <label className="block cursor-pointer border-2 border-dashed border-fg p-6 text-center hover:border-accent hover:bg-line">
-        <input type="file" multiple accept=".flac,.wav,.aif,.aiff,.m4a,.alac" className="sr-only" disabled={busy} onChange={(e) => onFiles(e.target.files)} />
+      <label className="block cursor-pointer border-2 border-dashed border-fg p-6 text-center hover:border-accent hover:bg-line has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent">
+        <input type="file" multiple accept=".flac,.wav,.aif,.aiff,.m4a,.alac,.wv,.w64" className="sr-only" disabled={busy} onChange={(e) => onFiles(e.target.files)} />
         <span className="font-mono font-bold">{busy ? "uploading…" : "+ add tracks"}</span>
         <span className="mt-1 block text-sm text-muted">
-          Lossless masters: FLAC, WAV, AIFF or ALAC, up to 24-bit / 192 kHz. Files are added in name order.
+          Lossless masters: FLAC, WAV, AIFF or ALAC, up to 24-bit / 192 kHz. Files are added in name order. Tracks under 30 seconds
+          can be uploaded, but plays of them don&apos;t count towards payouts.
         </span>
       </label>
       {items.length > 0 && (
@@ -83,10 +84,14 @@ export function RefreshWhileProcessing({ active }: { active: boolean }) {
 }
 
 /** Picks an image and uploads it as the album cover straight away. */
+const MAX_COVER_BYTES = 8 * 1024 ** 2;
+
 export function CoverUploader({ albumId, action }: { albumId: string; action: (form: FormData) => Promise<void> }) {
   const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
   return (
-    <label className={`btn-ghost block w-full cursor-pointer text-center ${pending ? "pointer-events-none opacity-60" : ""}`}>
+    <div>
+    <label className={`btn-ghost block w-full cursor-pointer text-center has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent ${pending ? "pointer-events-none opacity-60" : ""}`}>
       <input
         type="file"
         accept="image/jpeg,image/png,image/webp"
@@ -96,6 +101,12 @@ export function CoverUploader({ albumId, action }: { albumId: string; action: (f
           const file = e.target.files?.[0];
           e.target.value = "";
           if (!file) return;
+          // Checked here too: the server's upload limit would otherwise fail with a bare error.
+          if (file.size > MAX_COVER_BYTES) {
+            setError("Cover images must be under 8 MB.");
+            return;
+          }
+          setError(null);
           const form = new FormData();
           form.set("albumId", albumId);
           form.set("cover", file);
@@ -104,5 +115,11 @@ export function CoverUploader({ albumId, action }: { albumId: string; action: (f
       />
       {pending ? "Uploading…" : "Upload cover"}
     </label>
+    {error && (
+      <p role="alert" className="mt-2 text-xs text-danger">
+        {error}
+      </p>
+    )}
+    </div>
   );
 }

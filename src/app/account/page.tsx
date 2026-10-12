@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ConfirmButton } from "@/components/confirm-button";
 import { ThemePicker } from "@/components/theme";
 import { Notice } from "@/components/ui";
 import { requireUser } from "@/lib/auth";
@@ -9,9 +10,11 @@ import { cancel, resume } from "../actions";
 
 const dateFmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric" });
 
-export default async function AccountPage({ searchParams }: { searchParams: Promise<{ welcome?: string }> }) {
-  const { welcome } = await searchParams;
-  const user = await requireUser();
+export const metadata = { title: "Your account" };
+
+export default async function AccountPage({ searchParams }: { searchParams: Promise<{ welcome?: string; cancelled?: string; resumed?: string }> }) {
+  const sp = await searchParams;
+  const user = await requireUser("/account");
   const sub = user.subscription;
 
   // The open period: who your money is heading to so far.
@@ -44,7 +47,17 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
     <div className="space-y-10">
       <div>
         <h1 className="h1">Your account</h1>
-        <Notice success={welcome ? "Welcome to Castalia! Everything is now streamable in full quality." : undefined} />
+        <Notice
+          success={
+            sp.welcome
+              ? "Welcome to Castalia! Everything is now streamable in full quality."
+              : sp.cancelled && user.subscription
+                ? `Your subscription is cancelled. You can keep listening until ${dateFmt.format(user.subscription.currentPeriodEnd)}, and nothing more will be charged.`
+                : sp.resumed
+                  ? "Your subscription continues. It renews as before."
+                  : undefined
+          }
+        />
       </div>
 
       <section className="card">
@@ -65,9 +78,20 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
                 <>renews {dateFmt.format(sub.currentPeriodEnd)}</>
               )}
             </p>
-            <form action={sub.cancelAtPeriodEnd ? resume : cancel}>
-              <button className="btn-ghost">{sub.cancelAtPeriodEnd ? "Keep subscription" : "Cancel"}</button>
-            </form>
+            {sub.cancelAtPeriodEnd ? (
+              <form action={resume}>
+                <button className="btn-ghost">Keep subscription</button>
+              </form>
+            ) : (
+              <form action={cancel}>
+                <ConfirmButton
+                  className="btn-ghost"
+                  message={`Cancel your subscription? You keep listening until ${dateFmt.format(sub.currentPeriodEnd)}, then it stops.`}
+                >
+                  Cancel subscription
+                </ConfirmButton>
+              </form>
+            )}
           </div>
         )}
       </section>

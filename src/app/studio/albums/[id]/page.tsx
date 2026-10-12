@@ -1,21 +1,36 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ActionForm } from "@/components/action-form";
 import { PreviewButton } from "@/components/preview";
 import { Cover, Notice } from "@/components/ui";
 import { CoverUploader, RefreshWhileProcessing, TrackUploader } from "@/components/uploader";
 import { qualityLabel } from "@/lib/audio";
 import { requireArtist } from "@/lib/auth";
+import { MIN_PLAY_SECONDS } from "@/lib/constants";
 import { db } from "@/lib/db";
+import { verifiedError } from "@/lib/flash";
+import { isId } from "@/lib/ids";
 import { GENRES, MAX_GENRES } from "@/lib/genres";
 import { PREVIEW_SECONDS, previewVersion, resolvePreview } from "@/lib/previews";
 import { deleteTrack, renameTrack, setPreview, setPublished, updateAlbum, uploadCover } from "../../../actions";
 
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
-export default async function EditAlbumPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ error?: string }> }) {
+const SAVED: Record<string, string> = { details: "Album details saved.", preview: "Preview saved." };
+
+export const metadata = { title: "Edit album" };
+
+export default async function EditAlbumPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ error?: string; sig?: string; saved?: string }>;
+}) {
   const { id } = await params;
-  const { error } = await searchParams;
-  const { artist } = await requireArtist();
+  const sp = await searchParams;
+  const { artist } = await requireArtist(`/studio/albums/${id}`);
+  if (!isId(id)) notFound();
   const album = await db.album.findUnique({
     where: { id },
     include: { tracks: { orderBy: { number: "asc" }, include: { files: { orderBy: { quality: "asc" } } } } },
@@ -31,7 +46,8 @@ export default async function EditAlbumPage({ params, searchParams }: { params: 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <Link href="/studio" className="text-sm text-muted hover:text-fg">← Studio</Link>
-          <h1 className="h1">{album.title}</h1>
+          <h1 className="h1 [overflow-wrap:anywhere]">{album.title}</h1>
+          {!album.published && <p className="mt-1 font-mono text-xs text-muted">draft: only you can see this album</p>}
         </div>
         <div className="flex gap-2">
           {album.published && (
@@ -44,7 +60,7 @@ export default async function EditAlbumPage({ params, searchParams }: { params: 
           </form>
         </div>
       </div>
-      <Notice error={error} />
+      <Notice error={verifiedError(sp)} success={sp.saved ? SAVED[sp.saved] : undefined} />
 
       <div className="grid gap-6 md:grid-cols-[220px_1fr]">
         <div className="space-y-3">
@@ -54,15 +70,15 @@ export default async function EditAlbumPage({ params, searchParams }: { params: 
           <CoverUploader albumId={album.id} action={uploadCover} />
         </div>
 
-        <form key={`${album.title}|${album.priceCents}|${album.genres.join()}`} action={updateAlbum} className="card space-y-3">
+        <ActionForm key={`${album.title}|${album.description}|${album.priceCents}|${album.genres.join()}`} action={updateAlbum} className="card space-y-3">
           <input type="hidden" name="albumId" value={album.id} />
           <div>
             <label className="label" htmlFor="title">Title</label>
-            <input className="input" id="title" name="title" defaultValue={album.title} required />
+            <input className="input" id="title" name="title" defaultValue={album.title} maxLength={200} required />
           </div>
           <div>
             <label className="label" htmlFor="description">Description</label>
-            <textarea className="input" id="description" name="description" rows={3} defaultValue={album.description} />
+            <textarea className="input" id="description" name="description" rows={3} defaultValue={album.description} maxLength={2000} />
           </div>
           <div className="max-w-40">
             <label className="label" htmlFor="price">Price (EUR, VAT incl.)</label>
@@ -74,7 +90,7 @@ export default async function EditAlbumPage({ params, searchParams }: { params: 
               {GENRES.map((g) => (
                 <label
                   key={g}
-                  className="cursor-pointer border-2 border-fg px-2 py-0.5 font-mono text-xs has-[:checked]:bg-accent has-[:checked]:text-accent-fg has-[:focus-visible]:shadow-[2px_2px_0_var(--fg)]"
+                  className="cursor-pointer border-2 border-fg px-2 py-0.5 font-mono text-xs has-[:checked]:bg-accent has-[:checked]:text-accent-fg has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent"
                 >
                   <input type="checkbox" name="genres" value={g} defaultChecked={album.genres.includes(g)} className="sr-only" />
                   {g.toLowerCase()}
@@ -83,7 +99,7 @@ export default async function EditAlbumPage({ params, searchParams }: { params: 
             </div>
           </fieldset>
           <button className="btn-ghost">Save</button>
-        </form>
+        </ActionForm>
       </div>
 
       <section className="card">
@@ -94,7 +110,8 @@ export default async function EditAlbumPage({ params, searchParams }: { params: 
         {preview ? (
           <>
             {/* Keyed so the fields reset to the saved choice after each save. */}
-            <form key={previewVersion(album)} action={setPreview} className="mt-4 flex flex-wrap items-end gap-3">
+            <ActionForm key={previewVersion(album)} action={setPreview} className="mt-4 space-y-3">
+              <div className="flex flex-wrap items-end gap-3">
               <input type="hidden" name="albumId" value={album.id} />
               <div className="min-w-56 flex-1">
                 <label className="label" htmlFor="trackId">Track</label>
@@ -112,9 +129,10 @@ export default async function EditAlbumPage({ params, searchParams }: { params: 
                 <input className="input" id="start" name="start" placeholder="0:30" defaultValue={preview.chosenByArtist ? clock(preview.startSec) : ""} />
               </div>
               <button className="btn-ghost">Save preview</button>
-            </form>
+              </div>
+            </ActionForm>
             <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
-              <PreviewButton albumId={album.id} version={previewVersion(album)} />
+              <PreviewButton albumId={album.id} title={album.title} version={previewVersion(album)} />
               <span className="text-muted">
                 Now playing from <strong className="text-fg">{preview.track.title}</strong>, {clock(preview.startSec)} to{" "}
                 {clock(preview.startSec + Math.min(PREVIEW_SECONDS, preview.track.durationSec - preview.startSec))}
@@ -135,7 +153,7 @@ export default async function EditAlbumPage({ params, searchParams }: { params: 
               <form action={renameTrack} className="flex min-w-48 flex-1 gap-2">
                 <input type="hidden" name="albumId" value={album.id} />
                 <input type="hidden" name="trackId" value={t.id} />
-                <input className="input" name="title" defaultValue={t.title} aria-label="Track title" />
+                <input className="input" name="title" defaultValue={t.title} maxLength={200} aria-label={`Title of track ${t.number}`} />
                 <button className="btn-ghost">Rename</button>
               </form>
               <span className="text-xs text-muted">
@@ -146,12 +164,17 @@ export default async function EditAlbumPage({ params, searchParams }: { params: 
                     .filter((f) => f.quality !== "MP3" && f.quality !== "LOW")
                     .map((f) => qualityLabel(f))
                     .join(" · ")}
+                {t.status === "READY" && t.durationSec < MIN_PLAY_SECONDS && " · under 30 s, plays don't count"}
               </span>
-              <form action={deleteTrack}>
-                <input type="hidden" name="albumId" value={album.id} />
-                <input type="hidden" name="trackId" value={t.id} />
-                <button className="text-sm text-muted hover:text-danger">Delete</button>
-              </form>
+              {t.status !== "PROCESSING" && (
+                <form action={deleteTrack}>
+                  <input type="hidden" name="albumId" value={album.id} />
+                  <input type="hidden" name="trackId" value={t.id} />
+                  <button className="text-sm text-muted hover:text-danger" aria-label={`Delete track ${t.number}`}>
+                    Delete
+                  </button>
+                </form>
+              )}
             </li>
           ))}
         </ol>

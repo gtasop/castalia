@@ -2,10 +2,12 @@ import { currentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { serveFile } from "@/lib/http";
 import { ensurePreview } from "@/lib/previews";
+import { isId } from "@/lib/ids";
 
 /** The album's 15-second preview. Public for published albums. */
 export async function GET(req: Request, { params }: { params: Promise<{ albumId: string }> }) {
   const { albumId } = await params;
+  if (!isId(albumId)) return new Response("Not found", { status: 404 });
   const album = await db.album.findUnique({
     where: { id: albumId },
     include: { tracks: { select: { id: true, number: true, title: true, durationSec: true, status: true, files: { select: { quality: true, key: true, bytes: true } } } } },

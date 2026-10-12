@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 export default async function Home() {
   const user = await currentUser();
   const albums = await db.album.findMany({
-    where: { published: true },
+    where: { published: true, tracks: { some: { status: "READY" } } },
     include: { artist: { select: { id: true, name: true } } },
     orderBy: { releasedAt: "desc" },
   });

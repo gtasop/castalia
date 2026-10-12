@@ -42,7 +42,7 @@ next-env.d.ts
 !.env.example
 
 # local data
-/.pgdata
+/.pgdata*
 /storage
 
 # local editor/tooling config
