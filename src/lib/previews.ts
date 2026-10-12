@@ -74,7 +74,7 @@ async function cutPreview(album: AlbumForPreview, plan: NonNullable<ReturnType<t
     const out = path.join(dir, "preview.m4a");
     await run(ffmpegPath as string, [
       "-y", "-v", "error",
-      "-ss", String(plan.startSec), "-t", String(length), "-i", src,
+      "-ss", String(plan.startSec), "-t", String(length), "-protocol_whitelist", "file", "-f", "flac", "-i", src,
       "-map", "0:a:0", "-map_metadata", "-1",
       "-af", `afade=t=in:d=0.5,afade=t=out:st=${Math.max(0, length - 1.5)}:d=1.5`,
       "-c:a", "aac", "-b:a", "256k", "-movflags", "+faststart",

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter_Tight, Space_Mono } from "next/font/google";
 import Link from "next/link";
 import { Logo } from "@/components/logo";
+import { NavLink } from "@/components/nav-link";
 import { PlayerProvider } from "@/components/player";
 import { ThemeToggle } from "@/components/theme";
 import { currentUser } from "@/lib/auth";
@@ -14,7 +15,7 @@ const interTight = Inter_Tight({ variable: "--font-inter-tight", subsets: ["lati
 const spaceMono = Space_Mono({ variable: "--font-space-mono", subsets: ["latin"], weight: ["400", "700"] });
 
 export const metadata: Metadata = {
-  title: "Castalia",
+  title: { default: "Castalia", template: "%s · Castalia" },
   description: "Lossless music streaming where artists get everything except the hosting bill.",
 };
 
@@ -33,47 +34,38 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
             </div>
           )}
           <header className="border-b-2 border-fg">
-            <nav className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-5 gap-y-2 px-4 py-4">
+            {/* Phones: logo and account on the first row, site links below. Wider: one row. */}
+            <nav className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-5 gap-y-3 px-4 py-4" aria-label="Main">
               <Link href="/" className="mr-auto flex items-center gap-2.5" aria-label="Castalia home">
                 <Logo />
                 <span className="font-mono text-xl font-bold tracking-tighter">castalia</span>
               </Link>
-              <Link href="/albums" className={navLink}>
-                browse
-              </Link>
-              <Link href="/transparency" className={navLink}>
-                where the money goes
-              </Link>
-              <ThemeToggle theme={theme} />
-              {user ? (
-                <>
-                  {user.artist && (
-                    <Link href="/studio" className={navLink}>
-                      studio
+              <div className="order-last flex w-full gap-x-5 sm:order-none sm:w-auto">
+                <NavLink href="/albums">browse</NavLink>
+                <NavLink href="/transparency">where the money goes</NavLink>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <ThemeToggle theme={theme} />
+                {user ? (
+                  <>
+                    {user.artist && <NavLink href="/studio">studio</NavLink>}
+                    {user.role === "ADMIN" && <NavLink href="/admin">admin</NavLink>}
+                    <NavLink href="/account">
+                      <span className="inline-block max-w-40 truncate align-bottom">{user.name}</span>
+                    </NavLink>
+                    <form action={logout}>
+                      <button className={navLink}>log out</button>
+                    </form>
+                  </>
+                ) : (
+                  <>
+                    <NavLink href="/login">log in</NavLink>
+                    <Link href="/signup" className="btn px-3 py-1.5">
+                      sign up
                     </Link>
-                  )}
-                  {user.role === "ADMIN" && (
-                    <Link href="/admin" className={navLink}>
-                      admin
-                    </Link>
-                  )}
-                  <Link href="/account" className={navLink}>
-                    {user.name}
-                  </Link>
-                  <form action={logout}>
-                    <button className={navLink}>log out</button>
-                  </form>
-                </>
-              ) : (
-                <>
-                  <Link href="/login" className={navLink}>
-                    log in
-                  </Link>
-                  <Link href="/signup" className="btn">
-                    sign up
-                  </Link>
-                </>
-              )}
+                  </>
+                )}
+              </div>
             </nav>
           </header>
           <main className="mx-auto max-w-5xl px-4 pt-10 pb-40">{children}</main>

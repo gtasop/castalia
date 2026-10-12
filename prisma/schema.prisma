@@ -78,6 +78,9 @@ model Album {
   createdAt   DateTime  @default(now())
   // Optional, up to 3, from the fixed list in src/lib/genres.ts.
   genres      String[]  @default([])
+  // Title and artist name, lowercased with accents removed, for search.
+  // Kept in sync by src/lib/search.ts whenever either changes.
+  searchText  String    @default("")
 
   // 15-second preview chosen by the artist. Without a choice the preview
   // comes from the first track. The clip is generated on first request and
@@ -330,6 +333,9 @@ model ArtistEarning {
   salesCents        Int
   totalCents        Int
   stripeTransferId  String?
+  // Set (atomically) before a transfer is sent, so the same earning can't
+  // be paid twice and its run can't be reopened while money is moving.
+  transferStartedAt DateTime?
   paidAt            DateTime?
 
   @@unique([payoutRunId, artistId])

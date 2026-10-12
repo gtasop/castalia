@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { firstGrapheme } from "@/lib/text";
 
 export function Notice({ error, success }: { error?: string | string[]; success?: string }) {
   const msg = Array.isArray(error) ? error[0] : error;
@@ -38,9 +39,10 @@ export function Cover({ albumId, coverKey, title, size = "full" }: { albumId: st
   let h = 0;
   for (const c of title) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   const print = PRINTS[h % PRINTS.length];
-  const initial = title.trim().charAt(0).toLowerCase() || "c";
+  // First real character (works for emoji, combining accents and RTL titles).
+  const initial = firstGrapheme(title).toLocaleLowerCase() || "♪";
   return (
-    <div className={`${cls} ${print.bg} ${print.fg} relative flex overflow-hidden border-fg font-mono font-bold`} aria-label={`Cover of ${title}`}>
+    <div className={`${cls} ${print.bg} ${print.fg} relative flex overflow-hidden border-fg font-mono font-bold`} role="img" aria-label={`Cover of ${title}`}>
       {size === "full" ? (
         <>
           <span className="absolute -bottom-[0.18em] left-2 text-[9rem] leading-none tracking-tighter">{initial}</span>

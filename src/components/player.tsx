@@ -118,8 +118,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     lastPos.current = pos;
     setTime(pos);
 
-    const needed = Math.min(MIN_PLAY_SECONDS, Math.floor(current?.durationSec ?? MIN_PLAY_SECONDS));
-    if (current && !reported.current && listened.current >= needed) {
+    // Plays count after 30 s of listening; tracks shorter than that never count.
+    if (current && current.durationSec >= MIN_PLAY_SECONDS && !reported.current && listened.current >= MIN_PLAY_SECONDS) {
       reported.current = true;
       fetch("/api/plays", {
         method: "POST",
@@ -190,17 +190,33 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
                 className="mt-1 w-full accent-[var(--accent)]"
                 min={0}
                 max={duration || current.durationSec || 0}
-                step={0.1}
+                step={1}
                 value={time}
+                aria-valuetext={`${fmtTime(time)} of ${fmtTime(duration || current.durationSec)}`}
+                onKeyDown={(e) => {
+                  // Arrow keys jump 5 seconds, Home/End to the start or end.
+                  const total = duration || current.durationSec;
+                  const jump = { ArrowRight: 5, ArrowUp: 5, ArrowLeft: -5, ArrowDown: -5 }[e.key];
+                  let t: number | null = jump !== undefined ? time + jump : e.key === "Home" ? 0 : e.key === "End" ? total - 1 : null;
+                  if (t === null) return;
+                  e.preventDefault();
+                  t = Math.max(0, Math.min(total, t));
+                  if (audio.current) audio.current.currentTime = t;
+                  lastPos.current = t;
+                  setTime(t);
+                }}
                 onChange={(e) => {
                   const t = Number(e.target.value);
                   if (audio.current) audio.current.currentTime = t;
                   lastPos.current = t;
+                  setTime(t);
                 }}
               />
               <div className="flex justify-between font-mono text-[11px] text-bar-muted">
                 <span className="truncate">{error ?? formatNote}</span>
-                <span className={`shrink-0 pl-3 ${counted ? "text-accent" : ""}`}>{counted ? "play counted ✓" : `counts after ${MIN_PLAY_SECONDS}s`}</span>
+                <span className={`shrink-0 pl-3 ${counted ? "text-bar-fg" : ""}`} aria-live="polite">
+                  {current.durationSec < MIN_PLAY_SECONDS ? "under 30 s: not counted" : counted ? "play counted ✓" : `counts after ${MIN_PLAY_SECONDS}s`}
+                </span>
               </div>
             </div>
             <select
@@ -229,9 +245,10 @@ export function TrackList({ tracks, canPlay }: { tracks: PlayerTrack[]; canPlay:
       {tracks.map((t, i) => {
         const active = current?.id === t.id;
         return (
-          <li key={t.id}>
+          <li key={t.id} aria-current={active ? "true" : undefined}>
             <button
               disabled={!canPlay}
+              aria-pressed={active && playing}
               onClick={() => (active ? toggle() : play(tracks, i))}
               className={`flex w-full items-center gap-4 px-2 py-3 text-left disabled:cursor-not-allowed ${active ? "bg-fg text-bg" : "hover:bg-line disabled:hover:bg-transparent"}`}
             >

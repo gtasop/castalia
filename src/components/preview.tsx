@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from "react";
 export const PREVIEW_EVENT = "castalia:preview";
 export const PLAYER_EVENT = "castalia:player";
 
-export function PreviewButton({ albumId, version, small = false }: { albumId: string; version: string; small?: boolean }) {
+export function PreviewButton({ albumId, title, version, small = false }: { albumId: string; title: string; version: string; small?: boolean }) {
   const audio = useRef<HTMLAudioElement | null>(null);
   const [state, setState] = useState<"idle" | "loading" | "playing" | "error">("idle");
   const [left, setLeft] = useState(15);
@@ -38,7 +38,13 @@ export function PreviewButton({ albumId, version, small = false }: { albumId: st
       const el = new Audio(`/api/preview/${albumId}?v=${encodeURIComponent(version)}`);
       el.preload = "auto";
       el.onplaying = () => setState("playing");
-      el.onpause = () => setState((s) => (s === "error" ? s : "idle"));
+      el.onpause = () => {
+        // A stopped preview starts from the beginning next time.
+        el.currentTime = 0;
+        setProgress(0);
+        setLeft(15);
+        setState((s) => (s === "error" ? s : "idle"));
+      };
       el.onended = () => {
         el.currentTime = 0;
         setProgress(0);
@@ -62,7 +68,7 @@ export function PreviewButton({ albumId, version, small = false }: { albumId: st
     <button
       type="button"
       onClick={toggle}
-      aria-label={state === "playing" ? "Stop the 15-second preview" : "Play a 15-second preview"}
+      aria-label={state === "playing" ? `Stop the preview of ${title}` : `Play a 15-second preview of ${title}`}
       className={`btn-ghost relative overflow-hidden ${small ? "px-2.5 py-1 text-xs" : ""}`}
     >
       <span className="tabular-nums">{label}</span>

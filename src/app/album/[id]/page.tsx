@@ -3,30 +3,42 @@ import { notFound } from "next/navigation";
 import { TrackList, type PlayerTrack } from "@/components/player";
 import { PreviewButton } from "@/components/preview";
 import { Cover, Notice } from "@/components/ui";
-import { canStream, ownsAlbum } from "@/lib/access";
+import { canStream, canView, ownsAlbum } from "@/lib/access";
 import { currentUser, hasActiveSubscription } from "@/lib/auth";
 import { DOWNLOAD_FORMATS } from "@/lib/constants";
 import { db } from "@/lib/db";
+import { verifiedError } from "@/lib/flash";
+import { isId } from "@/lib/ids";
 import { genreSlug } from "@/lib/genres";
 import { formatEur, simulatedCardFee, vatIncluded } from "@/lib/money";
 import { previewVersion } from "@/lib/previews";
 import { buyAlbum } from "../../actions";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  if (!isId(id)) return { title: "Album not found" };
+  const album = await db.album.findUnique({ where: { id }, select: { title: true, published: true, artist: { select: { name: true } } } });
+  return { title: album?.published ? `${album.title} by ${album.artist.name}` : "Album" };
+}
 
 export default async function AlbumPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ bought?: string; error?: string }>;
+  searchParams: Promise<{ bought?: string; owned?: string; error?: string; sig?: string }>;
 }) {
   const { id } = await params;
+  if (!isId(id)) notFound();
   const sp = await searchParams;
   const user = await currentUser();
   const album = await db.album.findUnique({
     where: { id },
     include: { artist: true, tracks: { where: { status: "READY" }, orderBy: { number: "asc" }, include: { files: true } } },
   });
-  if (!album || (!album.published && user?.artist?.id !== album.artistId)) notFound();
+  // Unpublished albums stay visible to their artist and to everyone who bought them.
+  if (!album || !(await canView(user, album))) notFound();
+  const isArtist = user?.artist?.id === album.artistId;
 
   const playable = await canStream(user, album);
   const owned = await ownsAlbum(user, album.id);
@@ -55,9 +67,23 @@ export default async function AlbumPage({
         <Cover albumId={album.id} coverKey={album.coverKey} title={album.title} />
       </div>
       <div>
-        <Notice error={sp.error} success={sp.bought ? "Thank you! The album is yours: stream it here or download the files below." : undefined} />
+        <Notice
+          error={verifiedError(sp)}
+          success={
+            sp.bought
+              ? "Thank you! The album is yours: stream it here or download the files below."
+              : sp.owned
+                ? "You already own this album, so there's nothing to pay. Stream it here or download it below."
+                : undefined
+          }
+        />
+        {!album.published && (
+          <p className="mb-3 font-mono text-xs text-muted">
+            {isArtist ? "draft: only you can see this album" : "no longer for sale, but it's yours to keep"}
+          </p>
+        )}
         <p className="text-sm text-muted">{hasHiRes ? "Hi-Res lossless" : "Lossless"} album</p>
-        <h1 className="h1">{album.title}</h1>
+        <h1 className="h1 [overflow-wrap:anywhere]">{album.title}</h1>
         <Link href={`/artist/${album.artist.id}`} className="link">
           {album.artist.name}
         </Link>
@@ -70,25 +96,25 @@ export default async function AlbumPage({
             ))}
           </p>
         )}
-        {album.description && <p className="mt-3 max-w-prose text-muted">{album.description}</p>}
+        {album.description && <p className="mt-3 max-w-prose whitespace-pre-line text-muted [overflow-wrap:anywhere]">{album.description}</p>}
 
         <div className="mt-6 flex flex-wrap items-center gap-3">
           {owned ? (
-            <span className="text-sm text-muted">{user?.artist?.id === album.artistId ? "Your album" : "You own this album"}</span>
-          ) : (
+            <span className="text-sm text-muted">{isArtist ? "Your album" : "You own this album"}</span>
+          ) : album.published && album.tracks.length > 0 ? (
             <form action={buyAlbum}>
               <input type="hidden" name="albumId" value={album.id} />
               <button className="btn">Buy album · {formatEur(album.priceCents)}</button>
             </form>
-          )}
-          {!playable && album.tracks.length > 0 && <PreviewButton albumId={album.id} version={previewVersion(album)} />}
+          ) : null}
+          {!playable && album.published && album.tracks.length > 0 && <PreviewButton albumId={album.id} title={album.title} version={previewVersion(album)} />}
           {!playable && !hasActiveSubscription(user) && (
-            <Link href={user ? "/subscribe" : "/signup"} className="btn-ghost">
+            <Link href={user ? "/subscribe" : "/signup?next=%2Fsubscribe"} className="btn-ghost">
               Or subscribe to stream
             </Link>
           )}
         </div>
-        {!owned && (
+        {!owned && album.published && (
           <p className="mt-2 text-xs text-muted">
             {formatEur(toArtist)} goes to {album.artist.name}. The rest is VAT ({formatEur(vat)}) and the card fee (about {formatEur(fee)}).
           </p>
@@ -115,10 +141,11 @@ export default async function AlbumPage({
               <summary className="cursor-pointer text-muted">Single tracks</summary>
               <ul className="mt-2 space-y-1">
                 {album.tracks.map((t) => (
-                  <li key={t.id} className="flex flex-wrap gap-x-3">
-                    <span className="flex-1">
+                  <li key={t.id} className="flex flex-col gap-x-3 border-b border-line py-1.5 sm:flex-row sm:flex-wrap">
+                    <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
                       {t.number}. {t.title}
                     </span>
+                    <span className="flex gap-3">
                     {(Object.keys(DOWNLOAD_FORMATS) as (keyof typeof DOWNLOAD_FORMATS)[])
                       .filter((f) => f !== "hires" || t.files.some((x) => x.quality === "HIRES"))
                       .map((f) => (
@@ -126,6 +153,7 @@ export default async function AlbumPage({
                           {DOWNLOAD_FORMATS[f].label}
                         </a>
                       ))}
+                    </span>
                   </li>
                 ))}
               </ul>

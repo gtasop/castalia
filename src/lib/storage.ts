@@ -50,15 +50,15 @@ export async function putFile(key: string, filePath: string, contentType: string
   await pipeline(createReadStream(filePath), createWriteStream(dest));
 }
 
-/** For S3: a short-lived signed URL the browser fetches directly. */
-export async function signedUrl(key: string, downloadName?: string): Promise<string | null> {
+/** For S3: a short-lived signed URL the browser fetches directly. `disposition` is a full Content-Disposition value. */
+export async function signedUrl(key: string, disposition?: string): Promise<string | null> {
   if (driver !== "s3") return null;
   return getSignedUrl(
     client(),
     new GetObjectCommand({
       Bucket: process.env.S3_BUCKET,
       Key: key,
-      ResponseContentDisposition: downloadName ? `attachment; filename="${downloadName}"` : undefined,
+      ResponseContentDisposition: disposition,
     }),
     { expiresIn: 300 },
   );

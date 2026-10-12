@@ -99,6 +99,13 @@ Demo accounts are listed at the top of [`scripts/seed.ts`](scripts/seed.ts).
 
   Turn on Stripe Tax and set `STRIPE_TAX=1` to charge the correct VAT for each customer's country (EU OSS).
 - **Transcoding and zip building:** both run in the web process (after an upload, and on the first download of an album zip). On serverless hosting with short time limits, or with many uploads, move `processTrack` and `requestZip` to a background worker.
+- **Database encoding:** the database must be UTF-8 (`npm run db` creates it that way). Hosted Postgres usually is by default.
+- **`SESSION_SECRET`:** set a long random value; it signs error messages passed in URLs.
+- **Rate limits** (login, sign-up, donations) are kept in memory, which is enough for one server. With several servers, move them to Redis or the database.
+
+### Known, accepted dependency advisories
+
+`npm audit` still reports postcss (bundled inside Next.js, only used at build time on Castalia's own CSS) and deepmerge-ts (inside Prisma's CLI config loader). Neither is reachable by users of the running app; the fixes need major upgrades (Next 16, or a Prisma downgrade), so they wait for those.
 
 ## Scripts
 

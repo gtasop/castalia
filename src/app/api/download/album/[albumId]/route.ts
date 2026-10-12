@@ -3,7 +3,9 @@ import { currentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { serveFile } from "@/lib/http";
 import { themePreference, type ThemePref } from "@/lib/theme";
-import { isDownloadFormat, loadAlbumForZip, requestZip, zipPlan } from "@/lib/zips";
+import { isDownloadFormat } from "@/lib/constants";
+import { loadAlbumForZip, requestZip, zipPlan } from "@/lib/zips";
+import { isId } from "@/lib/ids";
 
 /**
  * The whole album as a zip, DRM-free. Served from storage once it has been
@@ -12,10 +14,11 @@ import { isDownloadFormat, loadAlbumForZip, requestZip, zipPlan } from "@/lib/zi
  */
 export async function GET(req: Request, { params }: { params: Promise<{ albumId: string }> }) {
   const { albumId } = await params;
+  if (!isId(albumId)) return new Response("Not found", { status: 404 });
   const user = await currentUser();
-  if (!(await ownsAlbum(user, albumId))) return new Response("Buy the album to download it", { status: 403 });
   const album = await loadAlbumForZip(albumId);
   if (!album) return new Response("Not found", { status: 404 });
+  if (!(await ownsAlbum(user, albumId))) return new Response("Buy the album to download it", { status: 403 });
 
   const requested = new URL(req.url).searchParams.get("format") ?? "flac";
   const format = isDownloadFormat(requested) ? requested : "flac";

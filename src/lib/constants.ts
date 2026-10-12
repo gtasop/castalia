@@ -11,6 +11,10 @@ export const DOWNLOAD_FORMATS = {
 
 export type DownloadFormat = keyof typeof DOWNLOAD_FORMATS;
 
+export function isDownloadFormat(v: string | null): v is DownloadFormat {
+  return v !== null && Object.hasOwn(DOWNLOAD_FORMATS, v);
+}
+
 export function downloadFormat(v: string | null) {
-  return DOWNLOAD_FORMATS[(v ?? "flac") as DownloadFormat] ?? DOWNLOAD_FORMATS.flac;
+  return isDownloadFormat(v) ? DOWNLOAD_FORMATS[v] : DOWNLOAD_FORMATS.flac;
 }

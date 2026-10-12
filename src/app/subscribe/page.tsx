@@ -1,16 +1,17 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Notice } from "@/components/ui";
+import { ActionForm } from "@/components/action-form";
 import { currentUser, hasActiveSubscription } from "@/lib/auth";
 import { formatEur, simulatedCardFee, vatIncluded, vatRate } from "@/lib/money";
 import { subscribe } from "../actions";
 
 const EXAMPLES = [500, 800, 1200];
 
-export default async function SubscribePage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
-  const { error } = await searchParams;
+export const metadata = { title: "Subscribe" };
+
+export default async function SubscribePage() {
   const user = await currentUser();
-  if (!user) redirect("/signup");
+  if (!user) redirect("/signup?next=%2Fsubscribe");
   if (hasActiveSubscription(user)) redirect("/account");
 
   return (
@@ -20,16 +21,14 @@ export default async function SubscribePage({ searchParams }: { searchParams: Pr
         Everything on Castalia in lossless and hi-res, from €5 a month. Pay more if you can: every extra cent goes to the artists you
         listen to.
       </p>
-      <Notice error={error} />
-
-      <form action={subscribe} className="card mt-6 space-y-4">
+      <ActionForm action={subscribe} className="card mt-6 space-y-4">
         <label className="label" htmlFor="amount">Monthly amount (EUR, VAT included)</label>
         <div className="flex gap-2">
           <input className="input text-lg" id="amount" name="amount" inputMode="decimal" defaultValue="8.00" required />
           <button className="btn shrink-0">Subscribe</button>
         </div>
-        <p className="text-xs text-muted">Minimum €5.00. Cancel any time; you keep access until the end of the month you paid for.</p>
-      </form>
+        <p className="text-xs text-muted">From €5.00 to €100.00. Cancel any time; you keep access until the end of the month you paid for.</p>
+      </ActionForm>
 
       <h2 className="h2 mt-10">Where your money goes</h2>
       <p className="mt-1 text-sm text-muted">
