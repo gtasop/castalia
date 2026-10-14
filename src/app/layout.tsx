@@ -33,7 +33,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
               demo mode: payments are simulated, no money moves
             </div>
           )}
-          <header className="border-b-2 border-fg">
+          <header className="border-b border-line">
             {/* Phones: logo and account on the first row, site links below. Wider: one row. */}
             <nav className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-5 gap-y-3 px-4 py-4" aria-label="Main">
               <Link href="/" className="mr-auto flex items-center gap-2.5" aria-label="Castalia home">
@@ -41,15 +41,14 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
                 <span className="font-mono text-xl font-bold tracking-tighter">castalia</span>
               </Link>
               <div className="order-last flex w-full gap-x-5 sm:order-none sm:w-auto">
-                <NavLink href="/albums">browse</NavLink>
-                <NavLink href="/transparency">where the money goes</NavLink>
+                {user && <NavLink href="/albums">browse</NavLink>}
+                <NavLink href="/transparency">how it&apos;s fair</NavLink>
               </div>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                 <ThemeToggle theme={theme} />
                 {user ? (
                   <>
                     {user.artist && <NavLink href="/studio">studio</NavLink>}
-                    {user.role === "ADMIN" && <NavLink href="/admin">admin</NavLink>}
                     <NavLink href="/account">
                       <span className="inline-block max-w-40 truncate align-bottom">{user.name}</span>
                     </NavLink>

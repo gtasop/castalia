@@ -1,25 +1,6 @@
-export const MIN_SUBSCRIPTION_CENTS = 500;
+// Album prices are set by the artist (VAT included) and paid to them directly.
 export const MIN_ALBUM_CENTS = 100;
-export const MIN_DONATION_CENTS = 100;
-export const MAX_SUBSCRIPTION_CENTS = 100_00;
 export const MAX_ALBUM_CENTS = 1_000_00;
-export const MAX_DONATION_CENTS = 10_000_00;
-export const MAX_HOSTING_CENTS = 1_000_000_00;
-
-export function vatRate(): number {
-  const r = Number(process.env.VAT_RATE ?? "0.21");
-  return Number.isFinite(r) && r >= 0 ? r : 0.21;
-}
-
-/** VAT contained in a VAT-inclusive price. */
-export function vatIncluded(grossCents: number, rate = vatRate()): number {
-  return Math.round(grossCents - grossCents / (1 + rate));
-}
-
-/** Stripe's standard EU card fee, used in demo mode. */
-export function simulatedCardFee(grossCents: number): number {
-  return Math.round(grossCents * 0.015) + 25;
-}
 
 export function formatEur(cents: number): string {
   return new Intl.NumberFormat("en-IE", { style: "currency", currency: "EUR" }).format(cents / 100);
@@ -50,22 +31,3 @@ export function checkAmount(value: FormDataEntryValue | null, min: number, max: 
   return { cents };
 }
 
-export function monthKey(d: Date): string {
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
-}
-
-export function isMonth(v: unknown): v is string {
-  return typeof v === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(v);
-}
-
-export function monthRange(month: string): { start: Date; end: Date } {
-  if (!isMonth(month)) throw new Error("Month must look like 2026-10");
-  const [y, m] = month.split("-").map(Number);
-  return { start: new Date(Date.UTC(y, m - 1, 1)), end: new Date(Date.UTC(y, m, 1)) };
-}
-
-export function addMonths(d: Date, n: number): Date {
-  const r = new Date(d);
-  r.setUTCMonth(r.getUTCMonth() + n);
-  return r;
-}

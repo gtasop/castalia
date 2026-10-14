@@ -2,7 +2,6 @@
 // synthesized audio (including a 24-bit/96kHz hi-res album).
 //
 // Demo accounts (password for all: castalia-demo):
-//   admin@castalia.test     platform admin (hosting costs, payout runs)
 //   listener@castalia.test  listener
 //   echo@castalia.test      artist "Echo & the Nymphs"
 //   pan@castalia.test       artist "Pan's Pipes"
@@ -66,13 +65,12 @@ function synth(file: string, freqs: number[], hiRes: boolean) {
   execFileSync(ffmpegPath as string, args);
 }
 
-async function user(email: string, name: string, role: "LISTENER" | "ARTIST" | "ADMIN") {
+async function user(email: string, name: string, role: "LISTENER" | "ARTIST") {
   const passwordHash = await bcrypt.hash(PASSWORD, 10);
   return db.user.upsert({ where: { email }, create: { email, name, role, passwordHash }, update: {} });
 }
 
 async function main() {
-  await user("admin@castalia.test", "Admin", "ADMIN");
   await user("listener@castalia.test", "Demo Listener", "LISTENER");
 
   const tmp = mkdtempSync(path.join(os.tmpdir(), "castalia-seed-"));
@@ -86,7 +84,7 @@ async function main() {
           data: { artistId: artist.id, title: al.title, description: al.description, priceCents: al.priceCents, genres: al.genres, published: true, releasedAt: new Date() },
         });
         for (const [i, [title, freqs]] of al.tracks.entries()) {
-          const track = await db.track.create({ data: { albumId: album.id, number: i + 1, title } });
+          const track = await db.track.create({ data: { albumId: album.id, number: i + 1, title, open: i === 0 } });
           const file = path.join(tmp, `${track.id}.flac`);
           synth(file, freqs, al.hiRes);
           await processTrack(track.id, file);

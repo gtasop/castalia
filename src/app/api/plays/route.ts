@@ -1,4 +1,4 @@
-import { canStream } from "@/lib/access";
+import { canStreamTrack } from "@/lib/access";
 import { currentUser } from "@/lib/auth";
 import { MIN_PLAY_SECONDS } from "@/lib/constants";
 import { db } from "@/lib/db";
@@ -6,6 +6,7 @@ import { lock } from "@/lib/locks";
 
 /**
  * Called by the player once a track has been listened to for 30 seconds.
+ * Plays are listening statistics for artists (no money depends on them).
  *
  * A play counts only if:
  * - the track is ready and at least 30 seconds long (shorter tracks never
@@ -26,7 +27,7 @@ export async function POST(req: Request) {
   if (!trackId || !Number.isFinite(listened)) return new Response("Bad request", { status: 400 });
 
   const track = await db.track.findUnique({ where: { id: trackId }, include: { album: true } });
-  if (!track || track.status !== "READY" || !(await canStream(user, track.album))) return new Response("Forbidden", { status: 403 });
+  if (!track || track.status !== "READY" || !(await canStreamTrack(user, track))) return new Response("Forbidden", { status: 403 });
 
   if (track.durationSec < MIN_PLAY_SECONDS) return Response.json({ counted: false, reason: "track shorter than 30 seconds" });
   if (listened < MIN_PLAY_SECONDS) return Response.json({ counted: false, reason: "too short" });

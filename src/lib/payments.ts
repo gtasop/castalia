@@ -1,12 +1,16 @@
 import "server-only";
 import Stripe from "stripe";
 import { db } from "./db";
-import { lock } from "./locks";
-import { addMonths, simulatedCardFee, vatIncluded } from "./money";
 
-// Payments run through Stripe when STRIPE_SECRET_KEY is set. Without it the
-// app runs in demo mode: payments succeed instantly, with Stripe's standard
-// EU card fee simulated, so the full money flow can be tried locally.
+// Castalia never holds money. Each artist connects their own Stripe account
+// (a "Standard" account they fully own) and buyers pay the artist directly:
+// the Checkout session is created *on the artist's account* (a direct
+// charge) with no platform fee. The artist is the seller of record, so the
+// receipt, Stripe's fee, VAT, refunds and disputes are theirs; Castalia only
+// records the purchase so the buyer can stream and download the album.
+//
+// Without STRIPE_SECRET_KEY the app runs in demo mode: purchases succeed
+// instantly and no money moves.
 
 let client: Stripe | null = null;
 export function stripe(): Stripe | null {
@@ -17,320 +21,148 @@ export function stripe(): Stripe | null {
 
 export const isDemoMode = () => !stripe();
 const appUrl = () => process.env.APP_URL ?? "http://localhost:3000";
-const stripeTax = () => process.env.STRIPE_TAX === "1";
 
-/** Tax as reported by Stripe, or the VAT contained in a VAT-inclusive price. */
-function taxFor(grossCents: number, stripeReportedTax: number | null | undefined) {
-  return stripeReportedTax && stripeReportedTax > 0 ? stripeReportedTax : vatIncluded(grossCents);
-}
-
-function amounts(grossCents: number, feeCents: number, reportedTax?: number | null) {
-  const taxCents = taxFor(grossCents, reportedTax);
-  return { grossCents, taxCents, feeCents, netCents: grossCents - taxCents - feeCents };
-}
-
-// ---------------------------------------------------------------- checkout
-
-export class AlreadySubscribed extends Error {
+/** The artist can't take payments yet (no connected Stripe account). */
+export class ArtistCannotSell extends Error {
   constructor() {
-    super("You're already subscribed. Your subscription renews on its own.");
+    super("This artist hasn't set up payments yet, so the album can't be bought right now.");
   }
 }
 
-const isActive = (sub: { status: string; currentPeriodEnd: Date } | null) => !!sub && sub.status === "ACTIVE" && sub.currentPeriodEnd > new Date();
+type AlbumForSale = { id: string; title: string; priceCents: number; artist: { name: string; stripeAccountId: string | null; paymentsEnabled: boolean } };
+
+export function canSell(artist: { stripeAccountId: string | null; paymentsEnabled: boolean }) {
+  return isDemoMode() || (!!artist.stripeAccountId && artist.paymentsEnabled);
+}
+
+type PurchaseRecord = {
+  userId: string;
+  albumId: string;
+  amountCents: number;
+  stripeAccountId?: string | null;
+  stripeSessionId?: string;
+  stripePaymentIntentId?: string | null;
+};
+
+async function recordPurchase(data: PurchaseRecord) {
+  try {
+    await db.purchase.create({ data });
+  } catch (e) {
+    // Already recorded (webhook and return page, or a double click).
+    if ((e as { code?: string }).code !== "P2002") throw e;
+  }
+}
+
+const intentId = (pi: string | Stripe.PaymentIntent | null) => (typeof pi === "string" ? pi : (pi?.id ?? null));
+
+/** Returns the URL to send the buyer to. */
+export async function startAlbumPurchase(userId: string, email: string, album: AlbumForSale): Promise<string> {
+  const s = stripe();
+  if (!s) {
+    await recordPurchase({ userId, albumId: album.id, amountCents: album.priceCents });
+    return `/album/${album.id}?bought=1`;
+  }
+  if (!canSell(album.artist)) throw new ArtistCannotSell();
+  const metadata = { kind: "album", userId, albumId: album.id };
+  const session = await s.checkout.sessions.create(
+    {
+      mode: "payment",
+      customer_email: email,
+      line_items: [
+        {
+          quantity: 1,
+          price_data: { currency: "eur", unit_amount: album.priceCents, product_data: { name: `${album.title} by ${album.artist.name}` } },
+        },
+      ],
+      metadata,
+      payment_intent_data: { metadata },
+      success_url: `${appUrl()}/album/${album.id}?bought=1&session={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${appUrl()}/album/${album.id}`,
+    },
+    { stripeAccount: album.artist.stripeAccountId! },
+  );
+  return session.url!;
+}
 
 /**
- * Returns the URL to send the user to. Never charges twice for the same
- * period: an active subscription is refused, or resumed if it was set to
- * end, and concurrent requests (double clicks) are serialised per user.
+ * When the buyer comes back from Checkout, confirm the session directly, so
+ * the album unlocks even if the webhook hasn't arrived yet.
  */
-export async function startSubscription(userId: string, email: string, amountCents: number): Promise<string> {
+export async function confirmCheckout(sessionId: string, albumId: string, userId: string) {
   const s = stripe();
-  if (!s) {
-    return db.$transaction(async (tx) => {
-      await lock(tx, `subscribe:${userId}`);
-      const existing = await tx.subscription.findUnique({ where: { userId } });
-      if (isActive(existing)) {
-        if (!existing!.cancelAtPeriodEnd) throw new AlreadySubscribed();
-        await tx.subscription.update({ where: { userId }, data: { cancelAtPeriodEnd: false } });
-        return "/account?resumed=1";
-      }
-      const now = new Date();
-      const end = addMonths(now, 1);
-      const sub = await tx.subscription.upsert({
-        where: { userId },
-        create: { userId, amountCents, currentPeriodStart: now, currentPeriodEnd: end },
-        update: { amountCents, status: "ACTIVE", cancelAtPeriodEnd: false, currentPeriodStart: now, currentPeriodEnd: end },
-      });
-      await tx.subscriptionPayment.create({
-        data: { subscriptionId: sub.id, userId, periodStart: now, periodEnd: end, ...amounts(amountCents, simulatedCardFee(amountCents)) },
-      });
-      return "/account?welcome=1";
-    });
-  }
-  const existing = await db.subscription.findUnique({ where: { userId } });
-  if (isActive(existing)) {
-    if (!existing!.cancelAtPeriodEnd) throw new AlreadySubscribed();
-    await resumeSubscription(userId);
-    return "/account?resumed=1";
-  }
-  const session = await s.checkout.sessions.create({
-    mode: "subscription",
-    customer_email: email,
-    line_items: [
-      {
-        quantity: 1,
-        price_data: {
-          currency: "eur",
-          unit_amount: amountCents,
-          recurring: { interval: "month" },
-          tax_behavior: "inclusive",
-          product_data: { name: "Castalia subscription" },
-        },
-      },
-    ],
-    automatic_tax: { enabled: stripeTax() },
-    metadata: { kind: "subscription", userId },
-    subscription_data: { metadata: { userId } },
-    success_url: `${appUrl()}/account?welcome=1`,
-    cancel_url: `${appUrl()}/subscribe`,
-  });
-  return session.url!;
-}
-
-export async function startAlbumPurchase(userId: string, email: string, albumId: string): Promise<string> {
-  const album = await db.album.findUniqueOrThrow({ where: { id: albumId }, include: { artist: true } });
-  const s = stripe();
-  if (!s) {
-    try {
-      await db.purchase.create({ data: { userId, albumId, ...amounts(album.priceCents, simulatedCardFee(album.priceCents)) } });
-    } catch (e) {
-      // A double click: the other request already recorded the purchase.
-      if ((e as { code?: string }).code !== "P2002") throw e;
-    }
-    return `/album/${albumId}?bought=1`;
-  }
-  const session = await s.checkout.sessions.create({
-    mode: "payment",
-    customer_email: email,
-    line_items: [
-      {
-        quantity: 1,
-        price_data: {
-          currency: "eur",
-          unit_amount: album.priceCents,
-          tax_behavior: "inclusive",
-          product_data: { name: `${album.title} by ${album.artist.name}` },
-        },
-      },
-    ],
-    automatic_tax: { enabled: stripeTax() },
-    metadata: { kind: "album", userId, albumId },
-    success_url: `${appUrl()}/album/${albumId}?bought=1`,
-    cancel_url: `${appUrl()}/album/${albumId}`,
-  });
-  return session.url!;
-}
-
-export async function startDonation(userId: string | null, amountCents: number): Promise<string> {
-  const s = stripe();
-  if (!s) {
-    const fee = simulatedCardFee(amountCents);
-    await recordDonation(userId, amountCents, fee, null);
-    return "/transparency?thanks=1";
-  }
-  const session = await s.checkout.sessions.create({
-    mode: "payment",
-    line_items: [{ quantity: 1, price_data: { currency: "eur", unit_amount: amountCents, product_data: { name: "Donation to the Castalia hosting reserve" } } }],
-    metadata: { kind: "donation", userId: userId ?? "" },
-    success_url: `${appUrl()}/transparency?thanks=1`,
-    cancel_url: `${appUrl()}/transparency`,
-  });
-  return session.url!;
-}
-
-export async function cancelSubscription(userId: string) {
-  const sub = await db.subscription.findUnique({ where: { userId } });
-  if (!sub) return;
-  const s = stripe();
-  if (s && sub.stripeSubscriptionId) {
-    await s.subscriptions.update(sub.stripeSubscriptionId, { cancel_at_period_end: true });
-  }
-  await db.subscription.update({ where: { userId }, data: { cancelAtPeriodEnd: true } });
-}
-
-export async function resumeSubscription(userId: string) {
-  const sub = await db.subscription.findUnique({ where: { userId } });
-  if (!sub) return;
-  const s = stripe();
-  if (s && sub.stripeSubscriptionId) {
-    await s.subscriptions.update(sub.stripeSubscriptionId, { cancel_at_period_end: false });
-  }
-  await db.subscription.update({ where: { userId }, data: { cancelAtPeriodEnd: false } });
-}
-
-async function recordDonation(userId: string | null, grossCents: number, feeCents: number, stripeSessionId: string | null) {
-  // Donations are not taxable supplies, so no VAT is deducted.
-  const netCents = grossCents - feeCents;
-  await db.$transaction(async (tx) => {
-    await tx.donation.create({ data: { userId: userId || null, grossCents, feeCents, netCents, stripeSessionId } });
-    await tx.reserveEntry.create({ data: { kind: "DONATION", amountCents: netCents, note: "Donation" } });
+  if (!s || !/^cs_[A-Za-z0-9_]+$/.test(sessionId)) return;
+  const album = await db.album.findUnique({ where: { id: albumId }, select: { artist: { select: { stripeAccountId: true } } } });
+  const account = album?.artist.stripeAccountId;
+  if (!account) return;
+  const session = await s.checkout.sessions.retrieve(sessionId, { stripeAccount: account }).catch(() => null);
+  if (!session || session.payment_status !== "paid") return;
+  const meta = session.metadata ?? {};
+  if (meta.kind !== "album" || meta.albumId !== albumId || meta.userId !== userId) return;
+  await recordPurchase({
+    userId,
+    albumId,
+    amountCents: session.amount_total ?? 0,
+    stripeAccountId: account,
+    stripeSessionId: session.id,
+    stripePaymentIntentId: intentId(session.payment_intent),
   });
 }
 
-// ------------------------------------------------------------- demo tools
-
-/**
- * Demo only: ends every open subscription period now and renews active
- * subscriptions, so payouts can be tried without waiting a month.
- */
-export async function demoEndPeriodsNow() {
-  if (!isDemoMode()) throw new Error("Only available in demo mode");
-  const now = new Date();
-  const subs = await db.subscription.findMany({ where: { stripeSubscriptionId: null } });
-  for (const sub of subs) {
-    await db.subscriptionPayment.updateMany({
-      where: { subscriptionId: sub.id, payoutRunId: null, periodEnd: { gt: now } },
-      data: { periodEnd: now },
-    });
-    if (sub.status !== "ACTIVE" || sub.cancelAtPeriodEnd) {
-      await db.subscription.update({ where: { id: sub.id }, data: { status: "CANCELED", currentPeriodEnd: now } });
-      continue;
-    }
-    const end = addMonths(now, 1);
-    await db.subscription.update({ where: { id: sub.id }, data: { currentPeriodStart: now, currentPeriodEnd: end } });
-    await db.subscriptionPayment.create({
-      data: { subscriptionId: sub.id, userId: sub.userId, periodStart: now, periodEnd: end, ...amounts(sub.amountCents, simulatedCardFee(sub.amountCents)) },
-    });
-  }
-}
-
-// ---------------------------------------------------------------- webhooks
-
-async function feeForPaymentIntent(s: Stripe, paymentIntentId: string | null | undefined): Promise<number> {
-  if (!paymentIntentId) return 0;
-  const pi = await s.paymentIntents.retrieve(paymentIntentId, { expand: ["latest_charge.balance_transaction"] });
-  const charge = pi.latest_charge as Stripe.Charge | null;
-  const bt = charge?.balance_transaction as Stripe.BalanceTransaction | null | undefined;
-  return bt?.fee ?? 0;
-}
-
-function idOf(x: string | { id: string } | null | undefined): string | null {
-  return typeof x === "string" ? x : (x?.id ?? null);
-}
-
+/** Events from the artists' connected accounts (event.account is set). */
 export async function handleStripeEvent(event: Stripe.Event) {
-  const s = stripe()!;
   switch (event.type) {
     case "checkout.session.completed": {
       const session = event.data.object;
       const meta = session.metadata ?? {};
-      if (meta.kind === "album" && meta.userId && meta.albumId) {
-        const fee = await feeForPaymentIntent(s, idOf(session.payment_intent));
-        await db.purchase.upsert({
-          where: { userId_albumId: { userId: meta.userId, albumId: meta.albumId } },
-          create: {
-            userId: meta.userId,
-            albumId: meta.albumId,
-            stripeSessionId: session.id,
-            ...amounts(session.amount_total ?? 0, fee, session.total_details?.amount_tax),
-          },
-          update: {},
-        });
-      } else if (meta.kind === "donation") {
-        if (await db.donation.findUnique({ where: { stripeSessionId: session.id } })) break;
-        const fee = await feeForPaymentIntent(s, idOf(session.payment_intent));
-        await recordDonation(meta.userId || null, session.amount_total ?? 0, fee, session.id);
-      } else if (meta.kind === "subscription" && meta.userId) {
-        const subId = idOf(session.subscription);
-        if (subId) await syncSubscription(await s.subscriptions.retrieve(subId), meta.userId);
-      }
+      if (meta.kind !== "album" || !meta.userId || !meta.albumId || session.payment_status !== "paid") break;
+      await recordPurchase({
+        userId: meta.userId,
+        albumId: meta.albumId,
+        amountCents: session.amount_total ?? 0,
+        stripeAccountId: event.account ?? null,
+        stripeSessionId: session.id,
+        stripePaymentIntentId: intentId(session.payment_intent),
+      });
       break;
     }
-    case "customer.subscription.updated":
-    case "customer.subscription.deleted":
-      await syncSubscription(event.data.object);
-      break;
-    case "invoice.paid": {
-      const invoice = event.data.object;
-      if (!invoice.id || (await db.subscriptionPayment.findUnique({ where: { stripeInvoiceId: invoice.id } }))) break;
-      const subId = idOf(invoice.parent?.subscription_details?.subscription);
-      if (!subId) break;
-      let sub = await db.subscription.findUnique({ where: { stripeSubscriptionId: subId } });
-      if (!sub) {
-        // invoice.paid can arrive before checkout.session.completed.
-        const remote = await s.subscriptions.retrieve(subId);
-        if (!remote.metadata.userId) break;
-        await syncSubscription(remote, remote.metadata.userId);
-        sub = await db.subscription.findUnique({ where: { stripeSubscriptionId: subId } });
-        if (!sub) break;
-      }
-      const payments = await s.invoicePayments.list({ invoice: invoice.id, limit: 1 });
-      const fee = await feeForPaymentIntent(s, idOf(payments.data[0]?.payment.payment_intent));
-      const tax = (invoice.total_taxes ?? []).reduce((a, t) => a + t.amount, 0);
-      const line = invoice.lines.data[0];
-      await db.subscriptionPayment.create({
-        data: {
-          subscriptionId: sub.id,
-          userId: sub.userId,
-          stripeInvoiceId: invoice.id,
-          periodStart: new Date((line?.period.start ?? invoice.period_start) * 1000),
-          periodEnd: new Date((line?.period.end ?? invoice.period_end) * 1000),
-          ...amounts(invoice.amount_paid, fee, tax),
-        },
-      });
+    case "charge.refunded": {
+      // A full refund by the artist takes the album back.
+      const charge = event.data.object;
+      const pi = intentId(charge.payment_intent);
+      if (pi && charge.refunded) await db.purchase.deleteMany({ where: { stripePaymentIntentId: pi } });
       break;
     }
     case "account.updated": {
       const account = event.data.object;
-      await db.artist.updateMany({ where: { stripeAccountId: account.id }, data: { payoutsEnabled: account.payouts_enabled ?? false } });
+      await db.artist.updateMany({ where: { stripeAccountId: account.id }, data: { paymentsEnabled: account.charges_enabled ?? false } });
       break;
     }
   }
 }
 
-async function syncSubscription(sub: Stripe.Subscription, userId?: string) {
-  const item = sub.items.data[0];
-  const status = sub.status === "active" || sub.status === "trialing" ? "ACTIVE" : sub.status === "past_due" ? "PAST_DUE" : "CANCELED";
-  const data = {
-    stripeSubscriptionId: sub.id,
-    stripeCustomerId: idOf(sub.customer),
-    amountCents: item?.price.unit_amount ?? 0,
-    status,
-    cancelAtPeriodEnd: sub.cancel_at_period_end,
-    currentPeriodStart: new Date((item?.current_period_start ?? sub.start_date) * 1000),
-    currentPeriodEnd: new Date((item?.current_period_end ?? sub.start_date) * 1000),
-  } as const;
-  const uid = userId ?? sub.metadata.userId;
-  if (!uid) return;
-  await db.subscription.upsert({ where: { userId: uid }, create: { userId: uid, ...data }, update: data });
-}
-
 // ------------------------------------------------------------ Stripe Connect
 
+/** Where to send an artist to connect (or finish connecting) their own Stripe account. */
 export async function artistOnboardingUrl(artistId: string): Promise<string> {
   const s = stripe();
   const artist = await db.artist.findUniqueOrThrow({ where: { id: artistId }, include: { user: true } });
   if (!s) {
-    await db.artist.update({ where: { id: artistId }, data: { stripeAccountId: `demo_${artistId}`, payoutsEnabled: true } });
-    return "/studio/payouts?connected=1";
+    await db.artist.update({ where: { id: artistId }, data: { stripeAccountId: `demo_${artistId}`, paymentsEnabled: true } });
+    return "/studio/payments?connected=1";
   }
   let accountId = artist.stripeAccountId;
   if (!accountId) {
-    const account = await s.accounts.create({
-      type: "express",
-      email: artist.user.email,
-      capabilities: { transfers: { requested: true } },
-      metadata: { artistId },
-    });
+    // A Standard account belongs to the artist: their own Stripe dashboard,
+    // payouts to their own bank, and they can disconnect from Castalia.
+    const account = await s.accounts.create({ type: "standard", email: artist.user.email, metadata: { artistId } });
     accountId = account.id;
     await db.artist.update({ where: { id: artistId }, data: { stripeAccountId: accountId } });
   }
   const link = await s.accountLinks.create({
     account: accountId,
     type: "account_onboarding",
-    refresh_url: `${appUrl()}/studio/payouts`,
-    return_url: `${appUrl()}/studio/payouts?connected=1`,
+    refresh_url: `${appUrl()}/studio/payments`,
+    return_url: `${appUrl()}/studio/payments?connected=1`,
   });
   return link.url;
 }
@@ -340,16 +172,5 @@ export async function refreshArtistAccount(artistId: string) {
   const artist = await db.artist.findUnique({ where: { id: artistId } });
   if (!s || !artist?.stripeAccountId) return;
   const account = await s.accounts.retrieve(artist.stripeAccountId);
-  await db.artist.update({ where: { id: artistId }, data: { payoutsEnabled: account.payouts_enabled ?? false } });
-}
-
-/** Sends money to an artist's connected account. Returns the transfer id. */
-export async function transferToArtist(stripeAccountId: string, amountCents: number, group: string, idempotencyKey: string) {
-  const s = stripe();
-  if (!s) return `demo_tr_${idempotencyKey}`;
-  const t = await s.transfers.create(
-    { amount: amountCents, currency: "eur", destination: stripeAccountId, transfer_group: group },
-    { idempotencyKey },
-  );
-  return t.id;
+  await db.artist.update({ where: { id: artistId }, data: { paymentsEnabled: account.charges_enabled ?? false } });
 }

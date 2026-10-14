@@ -1,4 +1,6 @@
-// What a form action returns when it can't proceed: the message to show and
-// what the person typed, so the form can be shown again with their input.
-// (On success the action redirects instead.) Shared by server and browser.
-export type FormState = { error: string; values: Record<string, string | string[]> } | null;
+// What a form action returns instead of redirecting:
+// - on failure, the message and what the person typed, so the form can be
+//   shown again with their input;
+// - on success (for edits that should stay in place), a short confirmation.
+// Shared by server and browser.
+export type FormState = { error?: string; success?: string; values: Record<string, string | string[]> } | null;

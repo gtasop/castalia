@@ -1,18 +1,18 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActionForm } from "@/components/action-form";
+import { OpenToggle } from "@/components/open-toggle";
 import { PreviewButton } from "@/components/preview";
 import { Cover, Notice } from "@/components/ui";
 import { CoverUploader, RefreshWhileProcessing, TrackUploader } from "@/components/uploader";
 import { qualityLabel } from "@/lib/audio";
 import { requireArtist } from "@/lib/auth";
-import { MIN_PLAY_SECONDS } from "@/lib/constants";
 import { db } from "@/lib/db";
 import { verifiedError } from "@/lib/flash";
 import { isId } from "@/lib/ids";
 import { GENRES, MAX_GENRES } from "@/lib/genres";
 import { PREVIEW_SECONDS, previewVersion, resolvePreview } from "@/lib/previews";
-import { deleteTrack, renameTrack, setPreview, setPublished, updateAlbum, uploadCover } from "../../../actions";
+import { deleteTrack, renameTrack, setPreview, setPublished, setTrackOpen, updateAlbum, uploadCover } from "../../../actions";
 
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
@@ -64,13 +64,13 @@ export default async function EditAlbumPage({
 
       <div className="grid gap-6 md:grid-cols-[220px_1fr]">
         <div className="space-y-3">
-          <div className="shadow-[5px_5px_0_var(--fg)]">
+          <div className="rounded-xl shadow-[3px_3px_0_var(--shadow)]">
             <Cover albumId={album.id} coverKey={album.coverKey} title={album.title} />
           </div>
           <CoverUploader albumId={album.id} action={uploadCover} />
         </div>
 
-        <ActionForm key={`${album.title}|${album.description}|${album.priceCents}|${album.genres.join()}`} action={updateAlbum} className="card space-y-3">
+        <ActionForm action={updateAlbum} className="card space-y-3">
           <input type="hidden" name="albumId" value={album.id} />
           <div>
             <label className="label" htmlFor="title">Title</label>
@@ -90,7 +90,7 @@ export default async function EditAlbumPage({
               {GENRES.map((g) => (
                 <label
                   key={g}
-                  className="cursor-pointer border-2 border-fg px-2 py-0.5 font-mono text-xs has-[:checked]:bg-accent has-[:checked]:text-accent-fg has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent"
+                  className="chip cursor-pointer has-[:checked]:border-accent has-[:checked]:bg-accent has-[:checked]:text-accent-fg has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent"
                 >
                   <input type="checkbox" name="genres" value={g} defaultChecked={album.genres.includes(g)} className="sr-only" />
                   {g.toLowerCase()}
@@ -105,17 +105,24 @@ export default async function EditAlbumPage({
       <section className="card">
         <h2 className="h2">Preview</h2>
         <p className="mt-1 text-sm text-muted">
-          {PREVIEW_SECONDS} seconds anyone can hear before buying, even without an account. Previews never count as plays.
+          {PREVIEW_SECONDS} seconds every listener on Castalia can hear before buying. Previews never count as plays.
         </p>
         {preview ? (
           <>
-            {/* Keyed so the fields reset to the saved choice after each save. */}
-            <ActionForm key={previewVersion(album)} action={setPreview} className="mt-4 space-y-3">
+            <ActionForm action={setPreview} className="mt-4 space-y-3">
               <div className="flex flex-wrap items-end gap-3">
               <input type="hidden" name="albumId" value={album.id} />
               <div className="min-w-56 flex-1">
                 <label className="label" htmlFor="trackId">Track</label>
-                <select className="input" id="trackId" name="trackId" defaultValue={preview.chosenByArtist ? preview.track.id : ""}>
+                {/* Keyed on the saved choice: a select doesn't follow a new defaultValue, and React's
+                    form reset after saving would otherwise put back the old one. */}
+                <select
+                  key={preview.chosenByArtist ? preview.track.id : "auto"}
+                  className="input"
+                  id="trackId"
+                  name="trackId"
+                  defaultValue={preview.chosenByArtist ? preview.track.id : ""}
+                >
                   <option value="">Automatic: track 1, from 0:30</option>
                   {readyTracks.map((t) => (
                     <option key={t.id} value={t.id}>
@@ -146,6 +153,10 @@ export default async function EditAlbumPage({
 
       <section>
         <h2 className="h2">Tracks</h2>
+        <p className="mt-1 text-sm text-muted">
+          Make a track <strong className="text-fg">open</strong> to let every listener on Castalia hear it in full before buying. The
+          other tracks play as the preview, and buyers get the whole album.
+        </p>
         <ol className="mt-3 divide-y divide-line">
           {album.tracks.map((t) => (
             <li key={t.id} className="flex flex-wrap items-center gap-3 py-3">
@@ -164,8 +175,10 @@ export default async function EditAlbumPage({
                     .filter((f) => f.quality !== "MP3" && f.quality !== "LOW")
                     .map((f) => qualityLabel(f))
                     .join(" · ")}
-                {t.status === "READY" && t.durationSec < MIN_PLAY_SECONDS && " · under 30 s, plays don't count"}
               </span>
+              {t.status === "READY" && (
+                <OpenToggle albumId={album.id} trackId={t.id} number={t.number} open={t.open} action={setTrackOpen} />
+              )}
               {t.status !== "PROCESSING" && (
                 <form action={deleteTrack}>
                   <input type="hidden" name="albumId" value={album.id} />

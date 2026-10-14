@@ -45,12 +45,11 @@ export function TrackUploader({ albumId }: { albumId: string }) {
 
   return (
     <div className="card">
-      <label className="block cursor-pointer border-2 border-dashed border-fg p-6 text-center hover:border-accent hover:bg-line has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent">
+      <label className="block cursor-pointer rounded-xl border-[1.5px] border-dashed border-edge p-6 text-center hover:border-accent hover:bg-line/40 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent">
         <input type="file" multiple accept=".flac,.wav,.aif,.aiff,.m4a,.alac,.wv,.w64" className="sr-only" disabled={busy} onChange={(e) => onFiles(e.target.files)} />
         <span className="font-mono font-bold">{busy ? "uploading…" : "+ add tracks"}</span>
         <span className="mt-1 block text-sm text-muted">
-          Lossless masters: FLAC, WAV, AIFF or ALAC, up to 24-bit / 192 kHz. Files are added in name order. Tracks under 30 seconds
-          can be uploaded, but plays of them don&apos;t count towards payouts.
+          Lossless masters: FLAC, WAV, AIFF or ALAC, up to 24-bit / 192 kHz. Files are added in name order.
         </span>
       </label>
       {items.length > 0 && (

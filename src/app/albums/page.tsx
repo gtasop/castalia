@@ -2,10 +2,11 @@ import type { Prisma } from "@prisma/client";
 import Link from "next/link";
 import { PreviewButton } from "@/components/preview";
 import { Cover } from "@/components/ui";
-import { currentUser } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { genreFromSlug, genreSlug } from "@/lib/genres";
 import { formatEur } from "@/lib/money";
+import { canSell } from "@/lib/payments";
 import { previewVersion } from "@/lib/previews";
 import { escapeLike, searchKey } from "@/lib/search";
 import { cleanLine } from "@/lib/text";
@@ -37,7 +38,7 @@ function withParams(current: Search, change: Partial<Search>) {
 export default async function BrowseAlbumsPage({ searchParams }: { searchParams: Promise<RawSearch> }) {
   const raw = await searchParams;
   const sp: Search = { q: first(raw.q), genre: first(raw.genre), hires: first(raw.hires), sort: first(raw.sort) };
-  const user = await currentUser();
+  const user = await requireUser(withParams(sp, {}));
   const q = cleanLine(sp.q, 100);
   const key = searchKey(q);
   const genre = genreFromSlug(sp.genre);
@@ -60,8 +61,8 @@ export default async function BrowseAlbumsPage({ searchParams }: { searchParams:
       where,
       orderBy: SORTS[sort].orderBy,
       include: {
-        artist: { select: { id: true, name: true } },
-        tracks: { where: { status: "READY" }, select: { files: { where: { quality: "HIRES" }, select: { id: true }, take: 1 } } },
+        artist: { select: { id: true, name: true, stripeAccountId: true, paymentsEnabled: true } },
+        tracks: { where: { status: "READY" }, select: { open: true, files: { where: { quality: "HIRES" }, select: { id: true }, take: 1 } } },
       },
     }),
     db.$queryRaw<{ genre: string; count: bigint }[]>`
@@ -72,7 +73,7 @@ export default async function BrowseAlbumsPage({ searchParams }: { searchParams:
   ]);
   const ownedIds = new Set(owned.map((p) => p.albumId));
   const filtered = !!(q || genre || hiresOnly);
-  const chip = "border-2 border-fg px-2 py-0.5 font-mono text-xs";
+  const chip = "chip";
 
   return (
     <div className="space-y-8">
@@ -80,7 +81,8 @@ export default async function BrowseAlbumsPage({ searchParams }: { searchParams:
         <h1 className="h1">Buy and download</h1>
         <p className="mt-2 text-muted">
           Albums you buy are yours to keep: DRM-free FLAC (hi-res where the artist recorded it) and MP3, and streamable here for good.
-          The artist gets the price minus VAT and the card fee. Every album has a 15-second preview.
+          You pay the artist directly; Castalia takes nothing. Every album has a 15-second preview, and many have open tracks you can
+          hear in full.
         </p>
       </div>
 
@@ -144,11 +146,12 @@ export default async function BrowseAlbumsPage({ searchParams }: { searchParams:
             const isOwner = user?.artist?.id === a.artistId;
             const isOwned = ownedIds.has(a.id) || isOwner;
             const hiRes = a.tracks.some((t) => t.files.length > 0);
+            const openTracks = a.tracks.filter((t) => t.open).length;
             return (
               <article key={a.id} className="flex flex-col">
                 <Link
                   href={`/album/${a.id}`}
-                  className="block shadow-[5px_5px_0_var(--fg)] transition-[transform,box-shadow] duration-100 hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[7px_7px_0_var(--accent)]"
+                  className="block rounded-xl shadow-[3px_3px_0_var(--shadow)] transition-[transform,box-shadow] duration-150 hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--accent)]"
                 >
                   <Cover albumId={a.id} coverKey={a.coverKey} title={a.title} />
                 </Link>
@@ -164,17 +167,24 @@ export default async function BrowseAlbumsPage({ searchParams }: { searchParams:
                   {hiRes && <span className="tag mt-1 shrink-0">hi-res</span>}
                 </div>
                 {a.genres.length > 0 && <p className="mt-1 truncate font-mono text-xs text-muted">{a.genres.map((g) => g.toLowerCase()).join(" / ")}</p>}
+                {openTracks > 0 && (
+                  <p className="mt-1 font-mono text-xs text-accent">
+                    {openTracks === a.tracks.length ? "all tracks open" : `${openTracks} open ${openTracks === 1 ? "track" : "tracks"}`}
+                  </p>
+                )}
                 <div className="mt-3 flex flex-wrap items-center gap-3">
                   <PreviewButton albumId={a.id} title={a.title} version={previewVersion(a)} small />
                   {isOwned ? (
                     <Link href={`/album/${a.id}#download`} className="btn px-2.5 py-1 text-xs">
                       {isOwner ? "your album" : "download"}
                     </Link>
-                  ) : (
+                  ) : canSell(a.artist) ? (
                     <form action={buyAlbum}>
                       <input type="hidden" name="albumId" value={a.id} />
                       <button className="btn px-2.5 py-1 text-xs">buy · {formatEur(a.priceCents)}</button>
                     </form>
+                  ) : (
+                    <span className="font-mono text-xs text-muted">not for sale yet</span>
                   )}
                 </div>
               </article>

@@ -60,7 +60,7 @@ export const currentUser = cache(async () => {
   if (!id || !TOKEN.test(id)) return null;
   const session = await db.session.findUnique({
     where: { id },
-    include: { user: { include: { artist: true, subscription: true } } },
+    include: { user: { include: { artist: true } } },
   });
   if (!session || session.expiresAt < new Date()) return null;
   return session.user;
@@ -85,9 +85,4 @@ export async function requireAdmin(back?: string) {
   const user = await requireUser(back);
   if (user.role !== "ADMIN") redirect("/");
   return user;
-}
-
-export function hasActiveSubscription(user: CurrentUser | null): boolean {
-  const s = user?.subscription;
-  return !!s && s.status === "ACTIVE" && s.currentPeriodEnd > new Date();
 }

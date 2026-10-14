@@ -3,20 +3,22 @@ import { notFound } from "next/navigation";
 import { TrackList, type PlayerTrack } from "@/components/player";
 import { PreviewButton } from "@/components/preview";
 import { Cover, Notice } from "@/components/ui";
-import { canStream, canView, ownsAlbum } from "@/lib/access";
-import { currentUser, hasActiveSubscription } from "@/lib/auth";
+import { canView, ownsAlbum } from "@/lib/access";
+import { currentUser, requireUser } from "@/lib/auth";
 import { DOWNLOAD_FORMATS } from "@/lib/constants";
 import { db } from "@/lib/db";
 import { verifiedError } from "@/lib/flash";
 import { isId } from "@/lib/ids";
 import { genreSlug } from "@/lib/genres";
-import { formatEur, simulatedCardFee, vatIncluded } from "@/lib/money";
+import { formatEur } from "@/lib/money";
+import { canSell, confirmCheckout } from "@/lib/payments";
 import { previewVersion } from "@/lib/previews";
 import { buyAlbum } from "../../actions";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   if (!isId(id)) return { title: "Album not found" };
+  if (!(await currentUser())) return { title: "Log in" };
   const album = await db.album.findUnique({ where: { id }, select: { title: true, published: true, artist: { select: { name: true } } } });
   return { title: album?.published ? `${album.title} by ${album.artist.name}` : "Album" };
 }
@@ -26,12 +28,15 @@ export default async function AlbumPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ bought?: string; owned?: string; error?: string; sig?: string }>;
+  searchParams: Promise<{ bought?: string; owned?: string; session?: string; error?: string; sig?: string }>;
 }) {
   const { id } = await params;
   if (!isId(id)) notFound();
   const sp = await searchParams;
-  const user = await currentUser();
+  // Albums are for members; logging in brings them back here.
+  const user = await requireUser(`/album/${id}`);
+  // Back from Stripe Checkout: record the purchase now if the webhook hasn't yet.
+  if (sp.bought && sp.session && user) await confirmCheckout(sp.session, id, user.id);
   const album = await db.album.findUnique({
     where: { id },
     include: { artist: true, tracks: { where: { status: "READY" }, orderBy: { number: "asc" }, include: { files: true } } },
@@ -40,8 +45,10 @@ export default async function AlbumPage({
   if (!album || !(await canView(user, album))) notFound();
   const isArtist = user?.artist?.id === album.artistId;
 
-  const playable = await canStream(user, album);
+  // Buyers and the artist hear everything; everyone else the open tracks.
   const owned = await ownsAlbum(user, album.id);
+  const openCount = album.tracks.filter((t) => t.open).length;
+  const forSale = album.published && album.tracks.length > 0 && canSell(album.artist);
   const hasHiRes = album.tracks.some((t) => t.files.some((f) => f.quality === "HIRES"));
 
   const tracks: PlayerTrack[] = album.tracks.map((t) => {
@@ -53,17 +60,14 @@ export default async function AlbumPage({
       albumId: album.id,
       durationSec: t.durationSec,
       hiRes: hi ? `${hi.bitDepth}-bit / ${(hi.sampleRate ?? 0) / 1000} kHz` : null,
+      playable: owned || (t.open && album.published),
+      open: t.open,
     };
   });
 
-  // What the artist receives from one sale (estimate with the standard card fee).
-  const vat = vatIncluded(album.priceCents);
-  const fee = simulatedCardFee(album.priceCents);
-  const toArtist = album.priceCents - vat - fee;
-
   return (
     <div className="grid gap-8 md:grid-cols-[280px_1fr]">
-      <div className="self-start shadow-[6px_6px_0_var(--fg)]">
+      <div className="self-start rounded-xl shadow-[4px_4px_0_var(--shadow)]">
         <Cover albumId={album.id} coverKey={album.coverKey} title={album.title} />
       </div>
       <div>
@@ -90,7 +94,7 @@ export default async function AlbumPage({
         {album.genres.length > 0 && (
           <p className="mt-2 flex flex-wrap gap-2">
             {album.genres.map((g) => (
-              <Link key={g} href={`/albums?genre=${genreSlug(g)}`} className="border-2 border-fg px-2 py-0.5 font-mono text-xs hover:bg-accent hover:text-accent-fg">
+              <Link key={g} href={`/albums?genre=${genreSlug(g)}`} className="chip hover:border-accent hover:bg-accent hover:text-accent-fg">
                 {g.toLowerCase()}
               </Link>
             ))}
@@ -101,27 +105,39 @@ export default async function AlbumPage({
         <div className="mt-6 flex flex-wrap items-center gap-3">
           {owned ? (
             <span className="text-sm text-muted">{isArtist ? "Your album" : "You own this album"}</span>
-          ) : album.published && album.tracks.length > 0 ? (
+          ) : forSale ? (
             <form action={buyAlbum}>
               <input type="hidden" name="albumId" value={album.id} />
               <button className="btn">Buy album · {formatEur(album.priceCents)}</button>
             </form>
+          ) : album.published && album.tracks.length > 0 ? (
+            <span className="text-sm text-muted">Not for sale yet: the artist hasn&apos;t set up payments.</span>
           ) : null}
-          {!playable && album.published && album.tracks.length > 0 && <PreviewButton albumId={album.id} title={album.title} version={previewVersion(album)} />}
-          {!playable && !hasActiveSubscription(user) && (
-            <Link href={user ? "/subscribe" : "/signup?next=%2Fsubscribe"} className="btn-ghost">
-              Or subscribe to stream
-            </Link>
-          )}
+          {!owned && album.published && album.tracks.length > 0 && <PreviewButton albumId={album.id} title={album.title} version={previewVersion(album)} />}
         </div>
-        {!owned && album.published && (
+        {!owned && forSale && (
           <p className="mt-2 text-xs text-muted">
-            {formatEur(toArtist)} goes to {album.artist.name}. The rest is VAT ({formatEur(vat)}) and the card fee (about {formatEur(fee)}).
+            You pay {album.artist.name} directly. Castalia takes nothing; only the card fee comes off.
           </p>
         )}
 
         <div className="mt-8">
-          {album.tracks.length === 0 ? <p className="text-muted">No tracks yet.</p> : <TrackList tracks={tracks} canPlay={playable} />}
+          {album.tracks.length === 0 ? (
+            <p className="text-muted">No tracks yet.</p>
+          ) : (
+            <>
+              {!owned && (
+                <p className="mb-3 text-sm text-muted">
+                  {openCount === 0
+                    ? "Play the preview, or buy the album to hear every track in full."
+                    : openCount === album.tracks.length
+                      ? "Every track is open: listen in full for free."
+                      : `${openCount} of ${album.tracks.length} tracks are open to everyone. Buy the album to hear the rest.`}
+                </p>
+              )}
+              <TrackList tracks={tracks} />
+            </>
+          )}
         </div>
 
         {owned && album.tracks.length > 0 && (

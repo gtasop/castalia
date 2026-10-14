@@ -10,8 +10,8 @@ import ffmpegPath from "ffmpeg-static";
 import { db } from "./db";
 import { deleteFile, putFile, readFile } from "./storage";
 
-// Every album has a 15-second preview anyone can hear, even without an
-// account. It is a separate short clip, so the full track is never exposed,
+// Every album has a 15-second preview any logged-in listener can hear.
+// It is a separate short clip, so the full track is never exposed,
 // and it never counts as a play. The artist picks the track and start; if
 // they have not, the first track is used from 30 seconds in.
 

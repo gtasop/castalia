@@ -4,6 +4,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import {
   createSession,
@@ -12,43 +13,23 @@ import {
   hashPassword,
   MAX_PASSWORD_BYTES,
   passwordBytes,
-  requireAdmin,
   requireArtist,
-  requireUser,
   verifyPassword,
 } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { errorQuery } from "@/lib/flash";
 import type { FormState } from "@/lib/form-state";
 import { isGenre, MAX_GENRES } from "@/lib/genres";
+import { GOOGLE_SIGNUP_COOKIE, GOOGLE_SIGNUP_PURPOSE, type PendingGoogleSignup } from "@/lib/google-cookies";
 import { isId } from "@/lib/ids";
 import { lock } from "@/lib/locks";
-import {
-  checkAmount,
-  isMonth,
-  MAX_ALBUM_CENTS,
-  MAX_DONATION_CENTS,
-  MAX_HOSTING_CENTS,
-  MAX_SUBSCRIPTION_CENTS,
-  MIN_ALBUM_CENTS,
-  MIN_DONATION_CENTS,
-  MIN_SUBSCRIPTION_CENTS,
-} from "@/lib/money";
-import {
-  AlreadySubscribed,
-  artistOnboardingUrl,
-  cancelSubscription,
-  demoEndPeriodsNow,
-  resumeSubscription,
-  startAlbumPurchase,
-  startDonation,
-  startSubscription,
-} from "@/lib/payments";
-import { createPayoutRun, deletePayoutRun, PayoutError, payRun } from "@/lib/payouts/run";
+import { checkAmount, MAX_ALBUM_CENTS, MIN_ALBUM_CENTS } from "@/lib/money";
+import { ArtistCannotSell, artistOnboardingUrl, startAlbumPurchase } from "@/lib/payments";
 import { latestStart } from "@/lib/previews";
 import { allow, clientIp } from "@/lib/rate-limit";
 import { safeNext } from "@/lib/redirect";
 import { albumSearchText } from "@/lib/search";
+import { unseal } from "@/lib/signed";
 import { deleteFile, deletePrefix, putFile } from "@/lib/storage";
 import { charCount, cleanBlock, cleanLine } from "@/lib/text";
 import { isTheme, setThemeCookie, themePreference, toThemeEnum, toThemePref } from "@/lib/theme";
@@ -118,7 +99,49 @@ export async function signup(_: FormState, form: FormData): Promise<FormState> {
   }
   await createSession(userId);
   const next = safeNext(form.get("next"));
-  redirect(next !== "/" ? next : role === "ARTIST" ? "/studio" : "/subscribe");
+  redirect(next !== "/" ? next : role === "ARTIST" ? "/studio" : "/albums");
+}
+
+// The last step of signing up with Google: Google has vouched for the email,
+// the person picks listener or artist and their name.
+export async function googleSignup(_: FormState, form: FormData): Promise<FormState> {
+  const jar = await cookies();
+  const pending = unseal<PendingGoogleSignup>(GOOGLE_SIGNUP_PURPOSE, jar.get(GOOGLE_SIGNUP_COOKIE)?.value);
+  const expired = "This Google sign-up expired. Continue with Google again.";
+  if (!pending) redirect(`/signup?${errorQuery(expired)}`);
+  const err = (msg: string) => formError(form, msg, "name", "role");
+  const name = cleanLine(form.get("name"), 1000);
+  const role = form.get("role");
+  if (role !== "LISTENER" && role !== "ARTIST") return err("Choose whether you are a listener or an artist");
+  if (!name) return err("Enter your name");
+  if (charCount(name) > 100) return err("Names can be at most 100 characters");
+
+  const taken = "An account with this email already exists. Log in with your password, then connect Google from your account page.";
+  if (await db.user.findFirst({ where: { OR: [{ email: pending!.email }, { googleId: pending!.sub }] }, select: { id: true } })) {
+    jar.delete({ name: GOOGLE_SIGNUP_COOKIE, path: "/signup" });
+    redirect(`/login?${errorQuery(taken)}`);
+  }
+  let userId: string;
+  try {
+    const user = await db.user.create({
+      data: {
+        name,
+        email: pending!.email,
+        googleId: pending!.sub,
+        role,
+        theme: toThemeEnum(await themePreference(null)),
+        ...(role === "ARTIST" ? { artist: { create: { name } } } : {}),
+      },
+    });
+    userId = user.id;
+  } catch (e) {
+    if (isUniqueViolation(e)) redirect(`/login?${errorQuery(taken)}`);
+    throw e;
+  }
+  jar.delete({ name: GOOGLE_SIGNUP_COOKIE, path: "/signup" });
+  await createSession(userId!);
+  const next = safeNext(pending!.next);
+  redirect(next !== "/" ? next : role === "ARTIST" ? "/studio" : "/albums");
 }
 
 export async function login(_: FormState, form: FormData): Promise<FormState> {
@@ -151,33 +174,9 @@ export async function logout() {
   redirect("/");
 }
 
-// ---------------------------------------------------------- listener money
-
-export async function subscribe(_: FormState, form: FormData): Promise<FormState> {
-  const user = await requireUser("/subscribe");
-  const amount = checkAmount(form.get("amount"), MIN_SUBSCRIPTION_CENTS, MAX_SUBSCRIPTION_CENTS, "monthly amount");
-  if (amount.error) return formError(form, amount.error, "amount");
-  let url: string;
-  try {
-    url = await startSubscription(user.id, user.email, amount.cents!);
-  } catch (e) {
-    if (e instanceof AlreadySubscribed) return formError(form, e.message, "amount");
-    throw e;
-  }
-  redirect(url);
-}
-
-export async function cancel() {
-  const user = await requireUser("/account");
-  await cancelSubscription(user.id);
-  redirect("/account?cancelled=1");
-}
-
-export async function resume() {
-  const user = await requireUser("/account");
-  await resumeSubscription(user.id);
-  redirect("/account?resumed=1");
-}
+// ----------------------------------------------------------------- buying
+// The buyer pays the artist directly (see lib/payments.ts); Castalia only
+// records the purchase.
 
 export async function buyAlbum(form: FormData) {
   const albumId = form.get("albumId");
@@ -186,22 +185,29 @@ export async function buyAlbum(form: FormData) {
   if (!user) redirect(`/login?next=${encodeURIComponent(`/album/${albumId}`)}`);
   const album = await db.album.findUnique({
     where: { id: albumId as string },
-    select: { id: true, published: true, _count: { select: { tracks: { where: { status: "READY" } } } } },
+    select: {
+      id: true,
+      title: true,
+      priceCents: true,
+      published: true,
+      artist: { select: { id: true, name: true, stripeAccountId: true, paymentsEnabled: true } },
+      _count: { select: { tracks: { where: { status: "READY" } } } },
+    },
   });
   if (!album?.published) fail("/albums", "This album isn't for sale");
   if (album!._count.tracks === 0) fail(`/album/${album!.id}`, "This album has no tracks yet, so it can't be bought");
+  if (user!.artist?.id === album!.artist.id) redirect(`/album/${album!.id}`);
   if (await db.purchase.findUnique({ where: { userId_albumId: { userId: user!.id, albumId: album!.id } }, select: { id: true } })) {
     redirect(`/album/${album!.id}?owned=1`);
   }
-  redirect(await startAlbumPurchase(user!.id, user!.email, album!.id));
-}
-
-export async function donate(_: FormState, form: FormData): Promise<FormState> {
-  const user = await currentUser();
-  if (!allow(`donate:${await clientIp()}`, 10, 3600)) return formError(form, "Too many donations from this connection. Try again later.", "amount");
-  const amount = checkAmount(form.get("amount"), MIN_DONATION_CENTS, MAX_DONATION_CENTS, "donation");
-  if (amount.error) return formError(form, amount.error, "amount");
-  redirect(await startDonation(user?.id ?? null, amount.cents!));
+  let url: string;
+  try {
+    url = await startAlbumPurchase(user!.id, user!.email, album!);
+  } catch (e) {
+    if (e instanceof ArtistCannotSell) fail(`/album/${album!.id}`, e.message);
+    throw e;
+  }
+  redirect(url!);
 }
 
 // ------------------------------------------------------------------ studio
@@ -251,7 +257,8 @@ export async function updateAlbum(_: FormState, form: FormData): Promise<FormSta
     where: { id: album.id },
     data: { title: t.title, description, priceCents: price.cents!, genres, searchText: albumSearchText(t.title, artist.name) },
   });
-  redirect(`${back}?saved=details`);
+  revalidatePath(back);
+  return { success: "Album details saved.", values: typed(form, ["title", "description", "price", "genres"]) };
 }
 
 /** "1:05", "65" or "" (= 0) to seconds; null if invalid. */
@@ -272,7 +279,8 @@ export async function setPreview(_: FormState, form: FormData): Promise<FormStat
   if (!trackId) {
     // Back to automatic: first track, from 30 seconds in.
     await db.album.update({ where: { id: album.id }, data: { previewTrackId: null, previewStartSec: 0 } });
-    redirect(`${back}?saved=preview`);
+    revalidatePath(back);
+    return { success: "Preview saved: track 1 from 0:30. Press play to hear it.", values: { trackId: "", start: "" } };
   }
   const track = album.tracks.find((t) => t.id === trackId && t.status === "READY");
   if (!track) return err("Pick a finished track for the preview");
@@ -281,7 +289,10 @@ export async function setPreview(_: FormState, form: FormData): Promise<FormStat
   const max = latestStart(track.durationSec);
   if (start > max) return err(`The preview must start by ${Math.floor(max / 60)}:${String(max % 60).padStart(2, "0")} to fit 15 seconds`);
   await db.album.update({ where: { id: album.id }, data: { previewTrackId: track.id, previewStartSec: start } });
-  redirect(`${back}?saved=preview`);
+  // Stay on the page (no redirect, no jump to the top); the editor re-renders
+  // with the new choice and the preview button loads the new clip.
+  revalidatePath(back);
+  return { success: "Preview saved. Press play to hear it.", values: typed(form, ["trackId", "start"]) };
 }
 
 export async function setPublished(form: FormData) {
@@ -304,6 +315,16 @@ export async function renameTrack(form: FormData) {
   redirect(back);
 }
 
+export async function setTrackOpen(form: FormData) {
+  const { album } = await ownAlbum(form.get("albumId"));
+  const trackId = String(form.get("trackId"));
+  if (album.tracks.some((t) => t.id === trackId)) {
+    await db.track.update({ where: { id: trackId }, data: { open: form.get("open") === "1" } });
+  }
+  // Updated in place: no redirect, so the page doesn't jump to the top.
+  revalidatePath(`/studio/albums/${album.id}`);
+}
+
 export async function deleteTrack(form: FormData) {
   const { album } = await ownAlbum(form.get("albumId"));
   const back = `/studio/albums/${album.id}`;
@@ -311,9 +332,9 @@ export async function deleteTrack(form: FormData) {
   const track = album.tracks.find((t) => t.id === trackId);
   if (!track) redirect(back);
   if (track!.status === "PROCESSING") fail(back, "This track is still being converted. Delete it once it's finished.");
-  // Tracks with counted plays are kept for payout history; hide them instead.
-  if (track!.status === "READY" && (await db.play.count({ where: { trackId } }))) {
-    fail(back, "This track has plays and is part of payout history, so it can't be deleted. You can unpublish the album instead; buyers keep it.");
+  // People who bought the album own its tracks, so they can't be taken away.
+  if (track!.status === "READY" && (await db.purchase.count({ where: { albumId: album.id } }))) {
+    fail(back, "This album has buyers, who own its tracks, so tracks can't be deleted. You can unpublish the album instead; buyers keep it.");
   }
   const readyLeft = album.tracks.filter((t) => t.status === "READY" && t.id !== trackId).length;
   if (album.published && track!.status === "READY" && readyLeft === 0) {
@@ -378,63 +399,7 @@ export async function updateArtistProfile(_: FormState, form: FormData): Promise
   redirect("/studio?saved=profile");
 }
 
-export async function connectPayouts() {
-  const { artist } = await requireArtist("/studio/payouts");
+export async function connectPayments() {
+  const { artist } = await requireArtist("/studio/payments");
   redirect(await artistOnboardingUrl(artist.id));
-}
-
-// ------------------------------------------------------------------- admin
-
-export async function setHostingCost(_: FormState, form: FormData): Promise<FormState> {
-  await requireAdmin("/admin");
-  const err = (msg: string) => formError(form, msg, "month", "amount", "note");
-  const month = form.get("month");
-  if (!isMonth(month)) return err("Month must look like 2026-10");
-  const amount = checkAmount(form.get("amount"), 0, MAX_HOSTING_CENTS, "hosting cost");
-  if (amount.error) return err(amount.error);
-  const note = cleanLine(form.get("note"), 500);
-  if (await db.payoutRun.findUnique({ where: { month } })) return err(`${month} is already closed, so its hosting bill can't change`);
-  await db.hostingCost.upsert({ where: { month }, create: { month, amountCents: amount.cents!, note }, update: { amountCents: amount.cents!, note } });
-  redirect("/admin?saved=hosting");
-}
-
-async function adminStep(work: () => Promise<unknown>, generic: string) {
-  try {
-    await work();
-  } catch (e) {
-    if (e instanceof PayoutError) fail("/admin", e.message);
-    console.error(e);
-    fail("/admin", generic);
-  }
-}
-
-export async function closeMonth(form: FormData) {
-  await requireAdmin("/admin");
-  await adminStep(() => createPayoutRun(String(form.get("month") ?? "")), "Closing the month failed. Nothing was changed.");
-  redirect("/admin?closed=1");
-}
-
-export async function reopenMonth(form: FormData) {
-  await requireAdmin("/admin");
-  const runId = form.get("runId");
-  if (!isId(runId)) fail("/admin", "That month isn't closed (any more).");
-  await adminStep(() => deletePayoutRun(runId as string), "Reopening the month failed. Nothing was changed.");
-  redirect("/admin?reopened=1");
-}
-
-export async function payArtists(form: FormData) {
-  await requireAdmin("/admin");
-  const runId = form.get("runId");
-  if (!isId(runId)) fail("/admin", "That month isn't closed (any more).");
-  let result = { paid: 0, waiting: 0 };
-  await adminStep(async () => {
-    result = await payRun(runId as string);
-  }, "Paying failed. Artists who weren't paid can be paid again; nobody is paid twice.");
-  redirect(`/admin?paid=${result.paid}&waiting=${result.waiting}`);
-}
-
-export async function demoEndPeriods() {
-  await requireAdmin("/admin");
-  await demoEndPeriodsNow();
-  redirect("/admin?ended=1");
 }

@@ -1,7 +1,8 @@
 @import "tailwindcss";
 
 /* Zine layout, Signal colours: black ink, white paper, one burnt orange.
-   Thick outlines and hard offset shadows instead of soft depth.
+   Fine outlines, rounded corners and small offset shadows in a soft grey:
+   the zine character without the heavy black edges.
 
    Each token is light-dark(light, dark). Which one applies follows
    color-scheme: the device setting by default, or the user's choice via
@@ -20,6 +21,9 @@
   --bar-fg: #f2f2f2;
   --bar-muted: #a3a3a3;
   --bar-edge: light-dark(#111111, #f2f2f2);
+  /* Offset shadows and outlines: softer than full ink. */
+  --shadow: light-dark(rgb(17 17 17 / 0.16), rgb(0 0 0 / 0.6));
+  --edge: light-dark(rgb(17 17 17 / 0.75), rgb(242 242 242 / 0.55));
 }
 
 :root[data-theme="light"] {
@@ -42,6 +46,7 @@
   --color-bar: var(--bar);
   --color-bar-fg: var(--bar-fg);
   --color-bar-muted: var(--bar-muted);
+  --color-edge: var(--edge);
   --font-sans: var(--font-inter-tight);
   --font-mono: var(--font-space-mono);
 }
@@ -59,40 +64,40 @@ body {
 @layer components {
   .btn,
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 border-2 border-fg px-4 py-2 font-mono text-sm font-bold transition-[transform,box-shadow] duration-100;
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border-[1.5px] px-4 py-2 font-mono text-sm font-bold transition-[transform,box-shadow,background-color] duration-150;
   }
   .btn {
-    @apply bg-fg text-bg shadow-[3px_3px_0_var(--accent)];
+    @apply border-fg bg-fg text-bg shadow-[2px_2px_0_var(--accent)];
   }
   .btn-ghost {
-    @apply bg-surface text-fg shadow-[3px_3px_0_var(--fg)];
+    @apply border-edge bg-surface text-fg shadow-[2px_2px_0_var(--shadow)];
   }
   .btn:hover,
   .btn-ghost:hover {
-    @apply -translate-x-px -translate-y-px;
+    @apply -translate-y-px;
   }
   .btn:hover {
-    @apply shadow-[4px_4px_0_var(--accent)];
+    @apply shadow-[3px_3px_0_var(--accent)];
   }
   .btn-ghost:hover {
-    @apply shadow-[4px_4px_0_var(--fg)];
+    @apply bg-line/40 shadow-[3px_3px_0_var(--shadow)];
   }
   .btn:active,
   .btn-ghost:active {
-    @apply translate-x-[3px] translate-y-[3px] shadow-none;
+    @apply translate-x-px translate-y-px shadow-none;
   }
   .btn:disabled,
   .btn-ghost:disabled {
     @apply translate-0 opacity-50;
   }
   .input {
-    @apply w-full border-2 border-fg bg-surface px-3 py-2 text-sm outline-none focus:shadow-[3px_3px_0_var(--accent)];
+    @apply w-full rounded-lg border-[1.5px] border-edge bg-surface px-3 py-2 text-sm outline-none transition-[border-color,box-shadow] focus:border-accent focus:ring-2 focus:ring-accent/25;
   }
   .label {
     @apply mb-1 block font-mono text-xs text-muted;
   }
   .card {
-    @apply border-2 border-fg bg-surface p-5 shadow-[5px_5px_0_var(--fg)];
+    @apply rounded-xl border-[1.5px] border-edge bg-surface p-5 shadow-[3px_3px_0_var(--shadow)];
   }
   .h1 {
     @apply font-mono text-3xl font-bold tracking-tighter;
@@ -101,15 +106,129 @@ body {
     @apply font-mono text-lg font-bold tracking-tight;
   }
   .link {
-    @apply text-fg underline decoration-accent decoration-2 underline-offset-4 hover:bg-accent hover:text-accent-fg hover:no-underline;
+    @apply rounded-sm text-fg underline decoration-accent decoration-2 underline-offset-4 hover:bg-accent hover:text-accent-fg hover:no-underline;
   }
   .tag {
-    @apply inline-block bg-accent px-1.5 font-mono text-[10px] font-bold uppercase leading-4 text-accent-fg;
+    @apply inline-block rounded bg-accent px-1.5 font-mono text-[10px] font-bold uppercase leading-4 text-accent-fg;
   }
   .meter {
-    @apply h-2.5 border-2 border-fg bg-surface;
+    @apply h-2 overflow-hidden rounded-full bg-line;
   }
   .meter > div {
-    @apply h-full bg-accent;
+    @apply h-full rounded-full bg-accent;
+  }
+  .chip {
+    @apply rounded-full border-[1.5px] border-edge px-2.5 py-0.5 font-mono text-xs;
+  }
+}
+
+/* Illustrations (components/art.tsx). Transforms are relative to each
+   shape's own box, so a ring scales and a disc spins around its centre. */
+.art .art-spin,
+.art .art-ripple,
+.art .art-eq,
+.art .art-twinkle,
+.art .art-marquee {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.art .art-spin {
+  animation: art-spin 6s linear infinite;
+}
+.art .art-ripple {
+  animation: art-ripple 4.2s ease-out infinite both;
+}
+.art .art-eq {
+  transform-origin: bottom;
+  animation: art-eq 1.3s ease-in-out infinite;
+}
+.art .art-bob {
+  animation: art-bob 3.4s ease-in-out infinite;
+}
+.art .art-twinkle {
+  animation: art-twinkle 2.6s ease-in-out infinite;
+}
+.art .art-float {
+  animation: art-float 5s ease-out infinite both;
+}
+.art .art-marquee {
+  animation: art-marquee 28s linear infinite;
+}
+.art .art-blink {
+  animation: art-blink 1.4s steps(2, jump-none) infinite;
+}
+/* The sign-up listener: head nods on the beat around the neck, body sways. */
+.art .art-jam {
+  transform-box: view-box;
+  transform-origin: 200px 300px;
+  animation: art-jam 1.1s ease-in-out infinite;
+}
+.art .art-sway {
+  transform-box: view-box;
+  transform-origin: 200px 430px;
+  animation: art-sway 2.2s ease-in-out infinite;
+}
+.art .art-sing {
+  transform-box: fill-box;
+  transform-origin: top;
+  animation: art-sing 0.55s ease-in-out infinite;
+}
+.art .art-pulse {
+  animation: art-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes art-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes art-ripple {
+  from { transform: scale(0.8); opacity: 0.8; }
+  to { transform: scale(1.5); opacity: 0; }
+}
+@keyframes art-eq {
+  0%, 100% { transform: scaleY(0.25); }
+  50% { transform: scaleY(1); }
+}
+@keyframes art-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+@keyframes art-twinkle {
+  0%, 100% { transform: scale(0.5) rotate(0deg); opacity: 0.35; }
+  50% { transform: scale(1) rotate(45deg); opacity: 1; }
+}
+@keyframes art-float {
+  0% { transform: translate(0, 0) rotate(0deg); opacity: 0; }
+  15% { opacity: 1; }
+  100% { transform: translate(16px, -72px) rotate(14deg); opacity: 0; }
+}
+@keyframes art-marquee {
+  to { transform: translateX(-50%); }
+}
+@keyframes art-jam {
+  0%, 100% { transform: rotate(-6deg); }
+  25%, 75% { transform: translateY(5px); }
+  50% { transform: rotate(6deg); }
+}
+@keyframes art-sway {
+  0%, 100% { transform: rotate(-1.5deg); }
+  50% { transform: rotate(1.5deg); }
+}
+@keyframes art-sing {
+  0%, 100% { transform: scaleY(1); }
+  50% { transform: scaleY(0.55); }
+}
+@keyframes art-pulse {
+  0%, 100% { opacity: 0.15; }
+  50% { opacity: 1; }
+}
+@keyframes art-blink {
+  to { opacity: 0.15; }
+}
+
+/* Still pictures for people who ask for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  .art,
+  .art * {
+    animation: none !important;
   }
 }

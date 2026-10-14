@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { contentDisposition, parseRange, safeFileName } from "./http";
-import { checkAmount, isMonth, parseEuroInput } from "./money";
+import { checkAmount, parseEuroInput } from "./money";
 import { safeNext } from "./redirect";
 import { albumSearchText, escapeLike, searchKey } from "./search";
 import { charCount, cleanBlock, cleanLine, firstGrapheme, sliceChars } from "./text";
@@ -23,10 +23,6 @@ describe("parseEuroInput", () => {
     expect(checkAmount("100.01", 500, 10000, "amount").error).toMatch(/maximum/);
     expect(checkAmount("x", 500, 10000, "amount").error).toMatch(/for example/);
     expect(checkAmount("8", 500, 10000).cents).toBe(800);
-  });
-  it("isMonth is strict", () => {
-    expect(isMonth("2026-10")).toBe(true);
-    for (const v of ["2026-13", "2026-1", "26-10", "2026-10-01", "2026-10\n", " 2026-10"]) expect(isMonth(v), v).toBe(false);
   });
 });
 

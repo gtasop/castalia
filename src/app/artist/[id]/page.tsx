@@ -1,16 +1,19 @@
 import { notFound } from "next/navigation";
 import { AlbumCard } from "@/components/ui";
+import { currentUser, requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isId } from "@/lib/ids";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  if (!(await currentUser())) return { title: "Log in" };
   const artist = isId(id) ? await db.artist.findUnique({ where: { id }, select: { name: true } }) : null;
   return { title: artist?.name ?? "Artist not found" };
 }
 
 export default async function ArtistPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  await requireUser(`/artist/${id}`);
   if (!isId(id)) notFound();
   const artist = await db.artist.findUnique({
     where: { id },
