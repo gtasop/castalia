@@ -1,96 +1,83 @@
-import { ActionForm } from "@/components/action-form";
-import { Notice, Stat } from "@/components/ui";
+import Link from "next/link";
+import { Stat } from "@/components/ui";
 import { db } from "@/lib/db";
+import { donateUrl } from "@/lib/donations";
 import { formatEur } from "@/lib/money";
-import { donate } from "../actions";
 
-export const metadata = { title: "Where the money goes" };
+export const metadata = { title: "How it's fair" };
 
-export default async function TransparencyPage({ searchParams }: { searchParams: Promise<{ thanks?: string }> }) {
-  const sp = await searchParams;
-  const [pay, sales, reserve, runs, earnings, paidOut] = await Promise.all([
-    db.subscriptionPayment.aggregate({ where: { payoutRunId: { not: null } }, _sum: { grossCents: true, taxCents: true, feeCents: true, netCents: true } }),
-    db.purchase.aggregate({ where: { payoutRunId: { not: null } }, _sum: { grossCents: true, netCents: true } }),
-    db.reserveEntry.aggregate({ _sum: { amountCents: true } }),
-    db.payoutRun.findMany({ orderBy: { month: "desc" }, include: { earnings: true, payments: { select: { netCents: true } } } }),
-    db.artistEarning.aggregate({ _sum: { totalCents: true } }),
-    db.artistEarning.aggregate({ where: { paidAt: { not: null } }, _sum: { totalCents: true } }),
+// Rough running costs, shown so donors know what they cover. Storage is
+// measured live; the server and domain are fixed monthly estimates.
+const SERVER_EUR_PER_MONTH = 600; // small VPS, ~€5–8
+const DOMAIN_EUR_PER_MONTH = 100; // ~€12 a year
+const STORAGE_CENTS_PER_GB_MONTH = 1.4; // Cloudflare R2, $0.015/GB, no download fees
+
+export default async function TransparencyPage() {
+  const [sales, artists, albums, files] = await Promise.all([
+    db.purchase.aggregate({ _sum: { amountCents: true }, _count: { _all: true } }),
+    db.artist.count({ where: { albums: { some: { published: true } } } }),
+    db.album.count({ where: { published: true } }),
+    db.trackFile.aggregate({ _sum: { bytes: true } }),
   ]);
-  const hosting = runs.reduce((a, r) => a + r.hostingCoveredCents, 0);
+  const gb = (files._sum.bytes ?? 0) / 1024 ** 3;
+  const storageCents = Math.ceil(gb * STORAGE_CENTS_PER_GB_MONTH);
+  const monthlyCents = SERVER_EUR_PER_MONTH + DOMAIN_EUR_PER_MONTH + storageCents;
+  const donate = donateUrl();
 
   return (
     <div className="space-y-10">
       <div className="max-w-2xl">
-        <h1 className="h1">Where the money goes</h1>
-        <p className="mt-3 text-muted">Castalia makes no profit. These numbers come straight from the payout ledger.</p>
+        <h1 className="h1">How it&apos;s fair</h1>
+        <p className="mt-3 text-muted">Castalia never touches the money for music, and makes no profit. Here is how it works.</p>
       </div>
 
       <section className="grid gap-4 sm:grid-cols-3">
-        <Stat label="Earned by artists" value={formatEur(earnings._sum.totalCents ?? 0)} hint={`${formatEur(paidOut._sum.totalCents ?? 0)} paid out so far; the rest waits for artists to connect payouts`} />
-        <Stat label="Hosting paid from subscriptions" value={formatEur(hosting)} hint="Never more than 20% of a subscription" />
-        <Stat label="Hosting reserve" value={formatEur(reserve._sum.amountCents ?? 0)} hint="Donations, minus hosting above the 20% cap" />
+        <Stat label="Paid straight to artists" value={formatEur(sales._sum.amountCents ?? 0)} hint={`${sales._count._all} albums bought`} />
+        <Stat label="Artists" value={String(artists)} hint={`${albums} published albums`} />
+        <Stat label="Running costs" value={`~${formatEur(monthlyCents)}`} hint="per month, covered by donations" />
       </section>
 
-      <section className="max-w-2xl">
-        <h2 className="h2">How a subscription is split</h2>
-        <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm">
-          <li>VAT goes to the tax office, and the card processor takes its fee.</li>
-          <li>
-            Each subscriber pays an equal share of that month&apos;s actual hosting bill, but <strong>never more than 20%</strong> of what is
-            left. If hosting costs more than that, the difference comes from a reserve funded by donations, not from artists.
-          </li>
-          <li>
-            Everything else goes to the artists <strong>that subscriber</strong> played for 30 seconds or more, split by their own plays.
-            Your money never goes to music you did not listen to.
-          </li>
-          <li>If a subscriber plays nothing in a month, their share goes to a fund split across all artists by plays.</li>
-        </ol>
-        <h2 className="h2 mt-8">Album sales</h2>
-        <p className="mt-2 text-sm">The artist sets the price and receives all of it except VAT and the card fee. No hosting deduction.</p>
-      </section>
-
-      {runs.length > 0 && (
-        <section>
-          <h2 className="h2">Month by month</h2>
-          <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[32rem] text-sm tabular-nums">
-            <thead className="text-left text-muted">
-              <tr>
-                <th className="py-2 font-normal">Month</th>
-                <th className="font-normal">Subscriptions (net)</th>
-                <th className="font-normal">Hosting bill</th>
-                <th className="font-normal">From reserve</th>
-                <th className="font-normal">To artists</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {runs.map((r) => (
-                <tr key={r.id}>
-                  <td className="py-2 whitespace-nowrap">{r.month}</td>
-                  <td>{formatEur(r.payments.reduce((a, p) => a + p.netCents, 0))}</td>
-                  <td>{formatEur(r.hostingCostCents)}</td>
-                  <td>{formatEur(r.reserveDrawCents)}</td>
-                  <td className="font-medium">{formatEur(r.earnings.reduce((a, e) => a + e.totalCents, 0))}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table></div>
-          <p className="mt-2 text-xs text-muted">
-            Lifetime, closed months: {formatEur(pay._sum.grossCents ?? 0)} in subscriptions, {formatEur(pay._sum.taxCents ?? 0)} VAT,{" "}
-            {formatEur(pay._sum.feeCents ?? 0)} card fees. {formatEur(sales._sum.grossCents ?? 0)} in album sales.
+      <section className="max-w-2xl space-y-6">
+        <div>
+          <h2 className="h2">You pay the artist, not us</h2>
+          <p className="mt-2 text-sm">
+            When you buy an album, you pay the artist directly, into their own Stripe account. Castalia doesn&apos;t receive the money,
+            doesn&apos;t take a cut and doesn&apos;t hand anything out later. The receipt comes from the artist. The only deduction is
+            Stripe&apos;s card fee (about 1.5% + €0.25 for European cards), and the artist handles VAT as the seller.
           </p>
-        </section>
-      )}
-
-      <section className="card max-w-xl">
-        <h2 className="h2">Support the hosting reserve</h2>
-        <p className="mt-1 text-sm text-muted">Donations only ever pay for hosting above the 20% cap, so artists keep at least 80%.</p>
-        <Notice success={sp.thanks ? "Thank you for your donation!" : undefined} />
-        <ActionForm action={donate} className="mt-4 space-y-3">
-          <div className="flex gap-2">
-            <input className="input" name="amount" inputMode="decimal" defaultValue="10.00" aria-label="Donation in euros" />
-            <button className="btn shrink-0">Donate</button>
-          </div>
-        </ActionForm>
+        </div>
+        <div>
+          <h2 className="h2">Listening</h2>
+          <p className="mt-2 text-sm">
+            Every album has a 15-second preview, and artists choose which tracks every listener may hear in full. Buy an album to stream all of
+            it here and download it DRM-free, yours to keep even if the artist later takes it down.
+          </p>
+        </div>
+        <div>
+          <h2 className="h2">Running costs</h2>
+          <p className="mt-2 text-sm">
+            The server, storage and domain cost about {formatEur(monthlyCents)} a month right now: roughly{" "}
+            {formatEur(SERVER_EUR_PER_MONTH)} for the server, {formatEur(DOMAIN_EUR_PER_MONTH)} for the domain and{" "}
+            {formatEur(storageCents)} for {gb.toFixed(1)} GB of music in storage. Streaming and downloads cost almost nothing, because the
+            storage provider charges no download fees.
+          </p>
+          <p className="mt-2 text-sm">
+            These costs are paid only by donations{donate ? ", collected on a public page where every euro in and out is listed" : ""}.
+            Donations never buy anything on Castalia and never go to anyone&apos;s profit.
+          </p>
+          {donate ? (
+            <a href={donate} className="btn mt-4" target="_blank" rel="noreferrer">
+              Donate towards running costs
+            </a>
+          ) : (
+            <p className="mt-2 text-sm text-muted">The donation page isn&apos;t set up yet.</p>
+          )}
+        </div>
+        <p className="text-sm">
+          <Link href="/albums" className="link">
+            Browse albums →
+          </Link>
+        </p>
       </section>
     </div>
   );

@@ -2,26 +2,40 @@
 
 A minimal, lossless music platform where the artist gets the money.
 
-- **Subscriptions** are pay-what-you-want, from €5 a month.
-- **Albums** can be bought outright. The buyer streams them in the app forever and downloads DRM-free FLAC (16-bit or hi-res) or MP3.
-- **No profit.** Only VAT, card fees and the actual hosting bill are deducted, and hosting is capped at 20%. Everything else goes to artists.
+- **Buy from the artist.** Albums are bought straight from the artist: the buyer pays into the artist's own Stripe account. Castalia never holds the money and takes nothing.
+- **Listen first.** Every album has a 15-second preview, and artists choose which tracks listeners can hear in full.
+- **Keep what you buy.** A bought album unlocks every track for streaming here, and DRM-free downloads in FLAC (16-bit or hi-res) or MP3.
+- **No profit.** The running costs (server, storage, domain) are paid by donations through an external page such as Open Collective.
 
 Named after the Castalian Spring at Delphi, the sacred spring of the Muses.
 
-## How the money is split
+## How the money works
 
-For each paid subscription month:
+**Album sales.** Each artist connects their own Stripe account (a *Standard* account they fully own). When someone buys an album, the Checkout session is created on the artist's account as a *direct charge*, with no platform fee:
 
-1. **VAT** goes to the tax office and the **card processor** takes its fee.
-2. The subscriber pays an **equal share of that month's hosting bill**, but never more than **20%** of what is left. If hosting costs more than that, the shortfall is drawn from a **reserve funded by donations**. It never comes out of the artists' share.
-3. The rest is split between the artists **that subscriber** played. Only plays of **30 seconds or more** count, and each artist gets a share proportional to their plays (user-centric).
-4. If a subscriber plays nothing that month, their share goes to a **shared fund**, split across all artists by their share of all plays.
+- The artist is the seller of record: the receipt comes from them, Stripe's card fee comes off their sale, and they handle VAT, refunds and disputes in their own Stripe dashboard.
+- Castalia only receives a webhook saying the payment succeeded, and records the purchase so the buyer can stream and download the album. A full refund by the artist removes the purchase.
+- Because Castalia never collects or redistributes money, it doesn't need to be a payment intermediary.
 
-**Album sales** go to the artist minus VAT and the card fee, with no hosting deduction.
+**Running costs.** These are covered only by donations, collected on an external page set in `DONATE_URL`. A fiscal host such as Open Collective Europe can hold them for a project without its own legal entity, and publishes every euro in and out. Donations never buy anything on Castalia.
 
-Listeners see a statement of where every cent went. Artists see their earnings by month, and the public `/transparency` page shows the totals.
+The `/transparency` page ("How it's fair") explains this and shows what has been paid to artists and roughly what Castalia costs to run, with the storage cost measured live.
 
-The calculation is a pure, unit-tested function: [`src/lib/payouts/engine.ts`](src/lib/payouts/engine.ts).
+## Listening
+
+| Who | What they hear |
+| --- | --- |
+| Visitors without an account | Nothing of the albums: the home page invites them to join |
+| Anyone logged in | The 15-second preview of every album, and every track its artist made **open** |
+| Buyers of the album, and its artist | Every track, in full, plus downloads |
+
+Artists choose the preview (track and start time) and mark tracks open in the album editor. A purchase is for keeps: the buyer keeps the album even if the artist later unpublishes it.
+
+## Accounts
+
+People sign up with an email and password, or with Google. New Google users only pick listener or artist and their name; they log in with Google and have no password.
+
+Castalia doesn't verify email addresses, so Google is never connected to an existing account automatically: someone could have signed up with another person's email. The owner logs in with their password and connects Google from their account page instead.
 
 ## Audio
 
@@ -38,29 +52,29 @@ Listeners choose Hi-Res, Lossless or Data saver in the player.
 
 The uploaded master is only stored when none of the FLAC files is a bit-exact copy of it (checked by comparing the decoded samples). That is the case for 16-bit/48 kHz or 32-bit float masters. For the usual 16/44.1 and hi-res uploads, a FLAC file already preserves every sample, so storing the master too would add about 40% to the album's storage.
 
-Album downloads are zips, built the first time a buyer asks for one in a given format. The zip is kept in storage and later downloads are served straight from there, so albums that never sell take up no extra space. Changing an album's tracks or titles makes its cached zips stale, and they are rebuilt on the next download.
+Album downloads are zips, built the first time a buyer asks for one in a given format. The zip is kept in storage and later downloads are served straight from there, so albums that never sell take up no extra space.
 
 ## Browsing, previews and genres
 
-`/albums` lets anyone browse what can be bought and downloaded, with search, genre and hi-res filters and sorting by price.
+`/albums` lets anyone logged in browse albums, with search (accent- and case-insensitive), genre and hi-res filters and sorting by price.
 
-Every album has a **15-second preview** that anyone can hear, even without an account. The artist picks the track and start time in the album editor. Without a choice, the preview comes from track 1, starting 30 seconds in. Previews are separate AAC clips (~450 KB), so the full track is never exposed, and they never count as plays. A clip is cut the first time it is requested, and again whenever the choice changes.
+Every album has a **15-second preview**. The artist picks the track and start time; without a choice, the preview comes from track 1, starting 30 seconds in. Previews are separate AAC clips (~450 KB), so locked tracks are never exposed.
 
-Artists can tag an album with up to 3 **genres** from a fixed list ([`src/lib/genres.ts`](src/lib/genres.ts)). Genres are optional.
+Artists can tag an album with up to 3 **genres** from a fixed list ([`src/lib/genres.ts`](src/lib/genres.ts)).
 
 ## Hosting costs
 
-Estimate for a 45-minute, 11-track album on Cloudflare R2 ($0.015 per GB-month, no egress fees):
+Rough monthly costs when self-hosted:
 
-| Album | Stored | Per month |
+| Item | Choice | Per month |
 | --- | --- | --- |
-| CD quality (16/44.1) | ~0.5 GB | ~$0.008 |
-| Hi-res 24/96 | ~1.4 GB | ~$0.022 |
-| Hi-res 24/192 | ~2.2 GB | ~$0.033 |
+| Server (app, database, ffmpeg) | Small VPS, 2 vCPU / 4 GB | €5–8 |
+| Audio storage | Cloudflare R2, $0.015 per GB, first 10 GB free | ~€0.01 per CD-quality album, ~€0.02 per hi-res album |
+| Streaming and downloads | R2 has no download fees | ~€0 |
+| Domain | | ~€1 |
+| Payment fees | Paid by the artist on each sale | €0 |
 
-Streaming only costs R2's read requests: about $0.00001 for a full album play, in any quality. The same play from Amazon S3, which charges ~$0.09/GB for egress, would cost $0.03 (lossless) to $0.15 (24/192). For a heavy hi-res listener that is more than the 20% hosting cap on a subscription. **R2, or another provider without egress fees, is what makes the cap work.**
-
-The hosting bill is therefore mostly fixed costs (the app server and database) plus storage that grows with the catalogue. Example: 1,000 albums and 1,000 subscribers cost about €60 a month, or €0.06 per subscriber, so artists receive ~99% of each net subscription.
+About €7–10 a month at the start, and €20–25 with a thousand albums.
 
 ## Running it locally
 
@@ -69,43 +83,33 @@ Requirements: Node 20+. Postgres and ffmpeg come from npm, so nothing else needs
 ```bash
 npm install
 cp .env.example .env  # Windows cmd: copy .env.example .env
-npm run db            # local Postgres on :5433, keep it running
+npm run db            # local Postgres on :5433 (UTF-8), keep it running
 npx prisma migrate dev
 npm run seed          # demo accounts + albums with generated audio
 npm run dev           # http://localhost:3000
 ```
 
-Without Stripe keys the app runs in **demo mode**: payments succeed instantly, with Stripe's standard EU card fee simulated. The admin page has a button that ends subscription periods early, so a full payout cycle can be tried without waiting a month.
+Without Stripe keys the app runs in **demo mode**: connecting payments and buying albums succeed instantly, and no money moves. Demo accounts are listed at the top of [`scripts/seed.ts`](scripts/seed.ts).
 
-Demo accounts are listed at the top of [`scripts/seed.ts`](scripts/seed.ts).
-
-### Trying a full cycle
-
-1. Log in as the listener, subscribe and play a track for 30+ seconds. Buy an album and download it.
-2. Log in as an artist and set up payouts in **Studio → Payouts**.
-3. Log in as the admin, enter a hosting bill, click **Demo: end all subscription periods now**, close the month and pay the artists.
-4. Back as the listener, **Account** shows where the money went.
+To try it: as an artist, connect payments in **Studio → Payments**, mark a track open in the album editor; as a listener, play the open track and the preview, buy the album and download it.
 
 ## Production setup
 
-- **Database:** any Postgres (for example Neon or Supabase). Set `DATABASE_URL` and run `npx prisma migrate deploy`.
-- **Storage:** set `STORAGE_DRIVER=s3` and point it at an S3-compatible bucket. Cloudflare R2 is recommended because it has no egress fees, which keeps the hosting bill small. Audio is then served to listeners through short-lived signed URLs.
-- **Payments:** set `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`, enable Stripe Connect (Express accounts), and send these webhook events to `/api/stripe/webhook`:
+- **Database:** any Postgres (for example Neon or Supabase), UTF-8. Set `DATABASE_URL` and run `npx prisma migrate deploy`.
+- **Storage:** set `STORAGE_DRIVER=s3` and point it at an S3-compatible bucket. Cloudflare R2 is recommended because it has no download fees. Audio is then served through short-lived signed URLs.
+- **Payments:** create a Stripe account for the platform, enable Connect, and set `STRIPE_SECRET_KEY`. Add a **Connect** webhook endpoint (events from connected accounts) for `/api/stripe/webhook` with these events, and set its secret as `STRIPE_CONNECT_WEBHOOK_SECRET`:
   - `checkout.session.completed`
-  - `invoice.paid`
-  - `customer.subscription.updated`
-  - `customer.subscription.deleted`
+  - `charge.refunded`
   - `account.updated`
-
-  Turn on Stripe Tax and set `STRIPE_TAX=1` to charge the correct VAT for each customer's country (EU OSS).
-- **Transcoding and zip building:** both run in the web process (after an upload, and on the first download of an album zip). On serverless hosting with short time limits, or with many uploads, move `processTrack` and `requestZip` to a background worker.
-- **Database encoding:** the database must be UTF-8 (`npm run db` creates it that way). Hosted Postgres usually is by default.
+- **Google sign-in (optional):** in Google Cloud Console, create an OAuth client ID of type *Web application*, add `https://your-domain/api/auth/google/callback` as an authorised redirect URI, and set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. The "Continue with Google" buttons appear once both are set. For local testing, add `http://localhost:3000/api/auth/google/callback` too (Google doesn't accept LAN addresses such as `http://192.168.…`).
+- **Donations:** set `DONATE_URL` to your donation page (for example your Open Collective page).
 - **`SESSION_SECRET`:** set a long random value; it signs error messages passed in URLs.
-- **Rate limits** (login, sign-up, donations) are kept in memory, which is enough for one server. With several servers, move them to Redis or the database.
+- **Transcoding and zip building** run in the web process. On serverless hosting with short time limits, or with many uploads, move `processTrack` and `requestZip` to a background worker.
+- **Rate limits** (login, sign-up) are kept in memory, which is enough for one server.
 
 ### Known, accepted dependency advisories
 
-`npm audit` still reports postcss (bundled inside Next.js, only used at build time on Castalia's own CSS) and deepmerge-ts (inside Prisma's CLI config loader). Neither is reachable by users of the running app; the fixes need major upgrades (Next 16, or a Prisma downgrade), so they wait for those.
+`npm audit` still reports postcss (bundled inside Next.js, only used at build time on Castalia's own CSS) and deepmerge-ts (inside Prisma's CLI config loader). Neither is reachable by users of the running app; the fixes need major upgrades, so they wait for those.
 
 ## Scripts
 
@@ -114,13 +118,12 @@ Demo accounts are listed at the top of [`scripts/seed.ts`](scripts/seed.ts).
 | `npm run db` | Local Postgres (embedded, data in `.pgdata/`) |
 | `npm run seed` | Demo data |
 | `npm run dev` | Dev server |
-| `npm test` | Payout engine tests |
+| `npm test` | Unit tests |
 | `npm run build` | Production build |
 
 ## Not built yet
 
-- Mobile and desktop apps, including offline downloads for subscribers
-- Search, playlists, following artists
+- Mobile and desktop apps, including offline listening
+- Playlists, following artists
 - Moderation and copyright claims for uploads
-- Fraud detection beyond the basics: there is a 30s minimum per play, one counted play per track per track length, and artists' plays of their own music don't count
-- Password reset and email verification
+- Password reset and email verification (Google sign-in covers the email side for its users)

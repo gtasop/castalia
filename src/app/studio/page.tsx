@@ -11,10 +11,9 @@ export const metadata = { title: "Studio" };
 export default async function StudioPage({ searchParams }: { searchParams: Promise<{ saved?: string }> }) {
   const { saved } = await searchParams;
   const { artist } = await requireArtist("/studio");
-  const [albums, earned, paid, playsThisMonth] = await Promise.all([
+  const [albums, sales, playsThisMonth] = await Promise.all([
     db.album.findMany({ where: { artistId: artist.id }, orderBy: { createdAt: "desc" }, include: { _count: { select: { tracks: true } } } }),
-    db.artistEarning.aggregate({ where: { artistId: artist.id }, _sum: { totalCents: true } }),
-    db.artistEarning.aggregate({ where: { artistId: artist.id, paidAt: { not: null } }, _sum: { totalCents: true } }),
+    db.purchase.aggregate({ where: { album: { artistId: artist.id } }, _sum: { amountCents: true }, _count: { _all: true } }),
     db.play.count({ where: { artistId: artist.id, playedAt: { gte: new Date(new Date().setUTCDate(1)) } } }),
   ]);
 
@@ -28,18 +27,22 @@ export default async function StudioPage({ searchParams }: { searchParams: Promi
 
       <section className="grid gap-4 sm:grid-cols-3">
         <Stat label="Counted plays this month" value={String(playsThisMonth)} hint="Plays of 30 seconds or more" />
-        <Stat label="Earned so far" value={formatEur(earned._sum.totalCents ?? 0)} hint="From closed months" />
-        <Stat label="Paid out" value={formatEur(paid._sum.totalCents ?? 0)} hint={artist.payoutsEnabled ? "Payouts connected" : "Connect payouts to get paid"} />
+        <Stat label="Albums sold" value={String(sales._count._all)} />
+        <Stat
+          label="Paid to you"
+          value={formatEur(sales._sum.amountCents ?? 0)}
+          hint={artist.paymentsEnabled ? "Straight into your Stripe account" : "Connect Stripe so your albums can be bought"}
+        />
       </section>
       <p className="-mt-6 text-sm">
-        <Link href="/studio/payouts" className="link">Payouts and earnings →</Link>
+        <Link href="/studio/payments" className="link">Payments and sales →</Link>
       </p>
 
       <section>
         <h2 className="h2">Albums</h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           {albums.map((a) => (
-            <Link key={a.id} href={`/studio/albums/${a.id}`} className="card flex items-center gap-4 p-3 transition-[transform,box-shadow] duration-100 hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[7px_7px_0_var(--accent)]">
+            <Link key={a.id} href={`/studio/albums/${a.id}`} className="card flex items-center gap-4 p-3 transition-[transform,box-shadow] duration-150 hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--accent)]">
               <Cover albumId={a.id} coverKey={a.coverKey} title={a.title} size="sm" />
               <div className="min-w-0">
                 <div className="truncate font-mono font-bold">{a.title}</div>

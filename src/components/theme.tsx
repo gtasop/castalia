@@ -33,7 +33,7 @@ export function ThemeToggle({ theme }: { theme: ThemePref }) {
   return (
     <form action={setTheme}>
       <input type="hidden" name="theme" value={next} />
-      <button aria-label={label} title={label} className="flex items-center border-2 border-fg p-1.5 text-fg hover:bg-fg hover:text-bg">
+      <button aria-label={label} title={label} className="flex items-center rounded-lg border-[1.5px] border-edge p-1.5 text-fg hover:bg-line">
         <ThemeIcon theme={theme} />
       </button>
     </form>

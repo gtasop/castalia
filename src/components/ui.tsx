@@ -5,7 +5,7 @@ export function Notice({ error, success }: { error?: string | string[]; success?
   const msg = Array.isArray(error) ? error[0] : error;
   if (msg) {
     return (
-      <p className="mb-6 border-2 border-danger px-4 py-3 text-sm text-danger shadow-[3px_3px_0_var(--danger)]" role="alert">
+      <p className="mb-6 rounded-lg border-[1.5px] border-danger bg-danger/5 px-4 py-3 text-sm text-danger" role="alert">
         <span className="mr-2 font-mono font-bold">!</span>
         {msg}
       </p>
@@ -13,7 +13,7 @@ export function Notice({ error, success }: { error?: string | string[]; success?
   }
   if (success) {
     return (
-      <p className="mb-6 border-2 border-fg px-4 py-3 text-sm shadow-[3px_3px_0_var(--fg)]" role="status">
+      <p className="mb-6 rounded-lg border-[1.5px] border-edge bg-accent/5 px-4 py-3 text-sm" role="status">
         <span className="mr-2 font-mono font-bold text-accent">✓</span>
         {success}
       </p>
@@ -31,10 +31,10 @@ const PRINTS = [
 ];
 
 export function Cover({ albumId, coverKey, title, size = "full" }: { albumId: string; coverKey: string | null; title: string; size?: "full" | "sm" }) {
-  const cls = size === "sm" ? "h-14 w-14 border-2" : "aspect-square w-full border-2";
+  const cls = size === "sm" ? "h-14 w-14 rounded-lg border-[1.5px]" : "aspect-square w-full rounded-xl border-[1.5px]";
   if (coverKey) {
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src={`/api/cover/${albumId}?v=${encodeURIComponent(coverKey)}`} alt={`Cover of ${title}`} className={`${cls} border-fg object-cover`} />;
+    return <img src={`/api/cover/${albumId}?v=${encodeURIComponent(coverKey)}`} alt={`Cover of ${title}`} className={`${cls} border-edge object-cover`} />;
   }
   let h = 0;
   for (const c of title) h = (h * 31 + c.charCodeAt(0)) >>> 0;
@@ -42,7 +42,7 @@ export function Cover({ albumId, coverKey, title, size = "full" }: { albumId: st
   // First real character (works for emoji, combining accents and RTL titles).
   const initial = firstGrapheme(title).toLocaleLowerCase() || "♪";
   return (
-    <div className={`${cls} ${print.bg} ${print.fg} relative flex overflow-hidden border-fg font-mono font-bold`} role="img" aria-label={`Cover of ${title}`}>
+    <div className={`${cls} ${print.bg} ${print.fg} relative flex overflow-hidden border-edge font-mono font-bold`} role="img" aria-label={`Cover of ${title}`}>
       {size === "full" ? (
         <>
           <span className="absolute -bottom-[0.18em] left-2 text-[9rem] leading-none tracking-tighter">{initial}</span>
@@ -60,7 +60,7 @@ export function AlbumCard({ album }: { album: { id: string; title: string; cover
     <div>
       <Link
         href={`/album/${album.id}`}
-        className="block shadow-[5px_5px_0_var(--fg)] transition-[transform,box-shadow] duration-100 hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[7px_7px_0_var(--accent)]"
+        className="block rounded-xl shadow-[3px_3px_0_var(--shadow)] transition-[transform,box-shadow] duration-150 hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--accent)]"
       >
         <Cover albumId={album.id} coverKey={album.coverKey} title={album.title} />
       </Link>

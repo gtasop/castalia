@@ -12,6 +12,10 @@ export type PlayerTrack = {
   durationSec: number;
   /** e.g. "24-bit / 96 kHz", null when only CD quality exists */
   hiRes: string | null;
+  /** Can this listener hear the whole track (open, or they own the album)? */
+  playable: boolean;
+  /** Open to everyone by the artist's choice. */
+  open: boolean;
 };
 
 export type QualityPref = "HIRES" | "LOSSLESS" | "LOW";
@@ -26,6 +30,33 @@ type Ctx = {
 
 const PlayerContext = createContext<Ctx | null>(null);
 export const usePlayer = () => useContext(PlayerContext)!;
+
+/** Saved volume (0–1) and mute state; per browser, like the quality choice. */
+function readVolume(): { volume: number; muted: boolean } {
+  try {
+    const v = Number(localStorage.getItem("castalia.volume"));
+    const volume = Number.isFinite(v) && localStorage.getItem("castalia.volume") !== null ? Math.min(1, Math.max(0, v)) : 1;
+    return { volume, muted: localStorage.getItem("castalia.muted") === "1" };
+  } catch {
+    return { volume: 1, muted: false };
+  }
+}
+
+function VolumeIcon({ level }: { level: "off" | "low" | "high" }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+      <path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor" stroke="none" />
+      {level === "off" ? (
+        <path d="M17 9l5 6M22 9l-5 6" />
+      ) : (
+        <>
+          <path d="M16.5 9.5a3.5 3.5 0 0 1 0 5" />
+          {level === "high" && <path d="M19 7a7 7 0 0 1 0 10" />}
+        </>
+      )}
+    </svg>
+  );
+}
 
 function readPref(): QualityPref {
   try {
@@ -48,8 +79,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [time, setTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [quality, setQuality] = useState<QualityPref>("HIRES");
+  const [volume, setVolume] = useState(1);
+  const [muted, setMuted] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [counted, setCounted] = useState(false);
 
   // Seconds actually listened in this playthrough. Seeking does not add time.
   const listened = useRef(0);
@@ -58,7 +90,24 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   const current = queue[index] ?? null;
 
-  useEffect(() => setQuality(readPref()), []);
+  useEffect(() => {
+    setQuality(readPref());
+    const v = readVolume();
+    setVolume(v.volume);
+    setMuted(v.muted);
+  }, []);
+
+  // Keep the audio element in step with the volume controls, and remember them.
+  useEffect(() => {
+    if (audio.current) {
+      audio.current.volume = volume;
+      audio.current.muted = muted;
+    }
+    try {
+      localStorage.setItem("castalia.volume", String(volume));
+      localStorage.setItem("castalia.muted", muted ? "1" : "0");
+    } catch {}
+  }, [volume, muted]);
 
   // A preview starting pauses the main player.
   useEffect(() => {
@@ -81,7 +130,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     if (!current) return;
     listened.current = 0;
     reported.current = false;
-    setCounted(false);
     load(current, readPref());
   }, [current, load]);
 
@@ -118,17 +166,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     lastPos.current = pos;
     setTime(pos);
 
-    // Plays count after 30 s of listening; tracks shorter than that never count.
+    // Report a play after 30 s of listening, for the artist's statistics.
     if (current && current.durationSec >= MIN_PLAY_SECONDS && !reported.current && listened.current >= MIN_PLAY_SECONDS) {
       reported.current = true;
       fetch("/api/plays", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ trackId: current.id, listenedSec: listened.current }),
-      })
-        .then((r) => r.json())
-        .then((r) => setCounted(!!r.counted))
-        .catch(() => {});
+      }).catch(() => {});
     }
   }
 
@@ -155,16 +200,16 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         onTimeUpdate={onTimeUpdate}
         onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
         onEnded={() => next(1)}
-        onError={() => setError("Subscribe or buy this album to listen.")}
+        onError={() => setError("Buy the album to hear this track in full.")}
       />
       {current && (
-        <div className="fixed inset-x-0 bottom-0 z-50 border-t-2 border-[var(--bar-edge)] bg-bar text-bar-fg">
+        <div className="fixed inset-x-0 bottom-0 z-50 border-t border-white/10 bg-bar text-bar-fg">
           <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
             <div className="flex items-center gap-1">
               <button aria-label="Previous" className="p-2 hover:text-accent disabled:opacity-30 disabled:hover:text-bar-fg" disabled={index === 0} onClick={() => next(-1)}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zM9.5 12 18 18V6z" /></svg>
               </button>
-              <button aria-label={playing ? "Pause" : "Play"} className="border-2 border-bar-fg bg-accent p-2 text-accent-fg active:translate-x-px active:translate-y-px" onClick={toggle}>
+              <button aria-label={playing ? "Pause" : "Play"} className="rounded-full bg-accent p-2.5 text-accent-fg transition-transform hover:scale-105 active:scale-95" onClick={toggle}>
                 {playing ? (
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z" /></svg>
                 ) : (
@@ -214,14 +259,42 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
               />
               <div className="flex justify-between font-mono text-[11px] text-bar-muted">
                 <span className="truncate">{error ?? formatNote}</span>
-                <span className={`shrink-0 pl-3 ${counted ? "text-bar-fg" : ""}`} aria-live="polite">
-                  {current.durationSec < MIN_PLAY_SECONDS ? "under 30 s: not counted" : counted ? "play counted ✓" : `counts after ${MIN_PLAY_SECONDS}s`}
-                </span>
+                {current.open && <span className="shrink-0 pl-3">open track</span>}
               </div>
+            </div>
+            <div className="ml-auto flex items-center gap-1 sm:ml-0">
+              <button
+                aria-label={muted || volume === 0 ? "Unmute" : "Mute"}
+                aria-pressed={muted}
+                className="rounded-full p-2 hover:bg-white/10"
+                onClick={() => {
+                  if (muted || volume === 0) {
+                    setMuted(false);
+                    if (volume === 0) setVolume(0.5);
+                  } else setMuted(true);
+                }}
+              >
+                <VolumeIcon level={muted || volume === 0 ? "off" : volume < 0.5 ? "low" : "high"} />
+              </button>
+              <input
+                type="range"
+                aria-label="Volume"
+                className="hidden w-24 accent-[var(--accent)] sm:block"
+                min={0}
+                max={1}
+                step={0.05}
+                value={muted ? 0 : volume}
+                aria-valuetext={`${Math.round((muted ? 0 : volume) * 100)}%`}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setVolume(v);
+                  setMuted(v === 0);
+                }}
+              />
             </div>
             <select
               aria-label="Audio quality"
-              className="ml-auto border-2 border-bar-fg bg-bar px-2 py-1.5 font-mono text-xs text-bar-fg sm:ml-0"
+              className="rounded-lg border border-white/25 bg-bar px-2 py-1.5 font-mono text-xs text-bar-fg"
               value={quality}
               onChange={(e) => changeQuality(e.target.value as QualityPref)}
             >
@@ -238,22 +311,28 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function TrackList({ tracks, canPlay }: { tracks: PlayerTrack[]; canPlay: boolean }) {
+export function TrackList({ tracks }: { tracks: PlayerTrack[] }) {
   const { current, playing, play, toggle } = usePlayer();
+  // Next/previous only move between tracks this listener can hear.
+  const queue = tracks.filter((t) => t.playable);
+  const showOpen = tracks.some((t) => !t.playable);
   return (
-    <ol className="divide-y divide-line border-y-2 border-fg">
+    <ol className="divide-y divide-line border-y-[1.5px] border-edge">
       {tracks.map((t, i) => {
         const active = current?.id === t.id;
         return (
           <li key={t.id} aria-current={active ? "true" : undefined}>
             <button
-              disabled={!canPlay}
+              disabled={!t.playable}
               aria-pressed={active && playing}
-              onClick={() => (active ? toggle() : play(tracks, i))}
-              className={`flex w-full items-center gap-4 px-2 py-3 text-left disabled:cursor-not-allowed ${active ? "bg-fg text-bg" : "hover:bg-line disabled:hover:bg-transparent"}`}
+              aria-label={t.playable ? undefined : `${t.title}: buy the album to play`}
+              onClick={() => (active ? toggle() : play(queue, queue.indexOf(t)))}
+              className={`flex w-full items-center gap-4 rounded-lg px-2 py-3 text-left disabled:cursor-not-allowed ${active ? "bg-accent/10" : "hover:bg-line/50 disabled:hover:bg-transparent"}`}
             >
               <span className={`w-6 text-right font-mono text-sm ${active ? "text-accent" : "text-muted"}`}>{active && playing ? "▶" : i + 1}</span>
               <span className={`flex-1 truncate ${active ? "font-mono font-bold" : ""}`}>{t.title}</span>
+              {showOpen && t.open && <span className="border border-current px-1.5 font-mono text-[10px] uppercase leading-4">open</span>}
+              {!t.playable && <span className="font-mono text-xs text-muted">locked</span>}
               {t.hiRes && <span className="tag">hi-res</span>}
               <span className={`font-mono text-sm ${active ? "" : "text-muted"}`}>{fmtTime(t.durationSec)}</span>
             </button>

@@ -1,6 +1,6 @@
 // Shared by server and browser code.
 
-/** A play counts towards payouts after this many seconds of listening. */
+/** A play is counted (for artists' listening statistics) after this many seconds. */
 export const MIN_PLAY_SECONDS = 30;
 
 export const DOWNLOAD_FORMATS = {

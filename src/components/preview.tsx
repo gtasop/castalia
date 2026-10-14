@@ -28,6 +28,22 @@ export function PreviewButton({ albumId, title, version, small = false }: { albu
     };
   }, [albumId]);
 
+  // The artist saved a different preview: drop the old clip so the next
+  // press loads the new one.
+  useEffect(() => {
+    return () => {
+      const el = audio.current;
+      if (!el) return;
+      el.onpause = null;
+      el.pause();
+      el.removeAttribute("src");
+      audio.current = null;
+      setState("idle");
+      setProgress(0);
+      setLeft(15);
+    };
+  }, [version]);
+
   function toggle() {
     if (state === "playing" || state === "loading") {
       audio.current?.pause();

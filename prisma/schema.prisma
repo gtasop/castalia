@@ -1,4 +1,8 @@
 // Castalia data model. All money is stored as integer euro cents.
+//
+// Castalia never holds money: an album is bought straight from the artist
+// (a Stripe "direct charge" on the artist's own account), and the running
+// costs are covered by donations through an external fiscal host.
 
 generator client {
   provider = "prisma-client-js"
@@ -25,19 +29,18 @@ model User {
   id           String   @id @default(cuid())
   email        String   @unique
   name         String
-  passwordHash String
+  // Null for accounts that only sign in with Google.
+  passwordHash String?
+  // Google's stable account id ("sub"), once Google sign-in is connected.
+  googleId     String?  @unique
   role         Role     @default(LISTENER)
   theme        Theme    @default(SYSTEM)
   createdAt    DateTime @default(now())
 
-  sessions     Session[]
-  artist       Artist?
-  subscription Subscription?
-  payments     SubscriptionPayment[]
-  purchases    Purchase[]
-  plays        Play[]
-  donations    Donation[]
-  allocations  Allocation[]
+  sessions  Session[]
+  artist    Artist?
+  purchases Purchase[]
+  plays     Play[]
 }
 
 model Session {
@@ -55,14 +58,13 @@ model Artist {
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   name            String
   bio             String   @default("")
+  // The artist's own Stripe account; buyers pay into it directly.
   stripeAccountId String?
-  payoutsEnabled  Boolean  @default(false)
+  paymentsEnabled Boolean  @default(false)
   createdAt       DateTime @default(now())
 
-  albums      Album[]
-  plays       Play[]
-  earnings    ArtistEarning[]
-  allocations Allocation[]
+  albums Album[]
+  plays  Play[]
 }
 
 model Album {
@@ -135,6 +137,8 @@ model Track {
   // The uploaded master is only kept when none of the FLAC files below
   // decodes to exactly the same audio (e.g. 16-bit/48 kHz or 32-bit float).
   masterKey        String?
+  // Open tracks can be streamed in full by anyone; the rest need the album.
+  open             Boolean     @default(false)
   createdAt        DateTime    @default(now())
 
   files TrackFile[]
@@ -164,71 +168,24 @@ model TrackFile {
   @@unique([trackId, quality])
 }
 
-enum SubscriptionStatus {
-  ACTIVE
-  PAST_DUE
-  CANCELED
-}
-
-model Subscription {
-  id                   String             @id @default(cuid())
-  userId               String             @unique
-  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  amountCents          Int                // pay-what-you-want, minimum enforced in code
-  status               SubscriptionStatus @default(ACTIVE)
-  stripeCustomerId     String?
-  stripeSubscriptionId String?            @unique
-  currentPeriodStart   DateTime
-  currentPeriodEnd     DateTime
-  cancelAtPeriodEnd    Boolean            @default(false)
-  createdAt            DateTime           @default(now())
-
-  payments SubscriptionPayment[]
-}
-
-// One paid month of a subscription. Its money is allocated once the
-// period is over, based on what the subscriber listened to in it.
-model SubscriptionPayment {
-  id              String       @id @default(cuid())
-  subscriptionId  String
-  subscription    Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
-  userId          String
-  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  periodStart     DateTime
-  periodEnd       DateTime
-  grossCents      Int
-  taxCents        Int
-  feeCents        Int
-  netCents        Int          // gross - tax - fee
-  stripeInvoiceId String?      @unique
-  paidAt          DateTime     @default(now())
-  payoutRunId     String?
-  payoutRun       PayoutRun?   @relation(fields: [payoutRunId], references: [id])
-
-  allocations Allocation[]
-
-  @@index([periodEnd])
-}
-
+// An album bought from its artist. The money went to the artist's Stripe
+// account; Castalia only records that the buyer may stream and download it.
 model Purchase {
-  id              String     @id @default(cuid())
-  userId          String
-  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  albumId         String
-  album           Album      @relation(fields: [albumId], references: [id], onDelete: Cascade)
-  grossCents      Int
-  taxCents        Int
-  feeCents        Int
-  netCents        Int
-  stripeSessionId String?    @unique
-  createdAt       DateTime   @default(now())
-  payoutRunId     String?
-  payoutRun       PayoutRun? @relation(fields: [payoutRunId], references: [id])
+  id                    String   @id @default(cuid())
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  albumId               String
+  album                 Album    @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  amountCents           Int      // what the buyer paid the artist
+  stripeAccountId       String?  // the artist's account the payment went to
+  stripeSessionId       String?  @unique
+  stripePaymentIntentId String?  @unique
+  createdAt             DateTime @default(now())
 
   @@unique([userId, albumId])
 }
 
-// Only plays of 30 seconds or more are stored.
+// Plays of 30 seconds or more, as listening statistics for artists.
 model Play {
   id       String   @id @default(cuid())
   userId   String
@@ -241,102 +198,4 @@ model Play {
 
   @@index([userId, playedAt])
   @@index([playedAt])
-}
-
-model HostingCost {
-  id          String   @id @default(cuid())
-  month       String   @unique // "2026-10"
-  amountCents Int
-  note        String   @default("")
-  createdAt   DateTime @default(now())
-}
-
-model Donation {
-  id              String   @id @default(cuid())
-  userId          String?
-  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  grossCents      Int
-  feeCents        Int
-  netCents        Int
-  stripeSessionId String?  @unique
-  createdAt       DateTime @default(now())
-}
-
-enum ReserveKind {
-  DONATION
-  HOSTING_SHORTFALL
-}
-
-// Ledger of the donation reserve that covers hosting above the 20% cap.
-model ReserveEntry {
-  id          String      @id @default(cuid())
-  kind        ReserveKind
-  amountCents Int         // positive = in, negative = out
-  note        String      @default("")
-  payoutRunId String?
-  createdAt   DateTime    @default(now())
-}
-
-enum PayoutRunStatus {
-  FINALIZED
-  PAID
-}
-
-model PayoutRun {
-  id                 String          @id @default(cuid())
-  month              String          @unique // payments whose period ended in this month
-  status             PayoutRunStatus @default(FINALIZED)
-  hostingCostCents   Int
-  hostingCoveredCents Int            // taken from subscriptions
-  reserveDrawCents   Int             // taken from the donation reserve
-  createdAt          DateTime        @default(now())
-
-  payments    SubscriptionPayment[]
-  purchases   Purchase[]
-  allocations Allocation[]
-  earnings    ArtistEarning[]
-}
-
-enum AllocationKind {
-  HOSTING
-  ARTIST_PLAYS
-  SHARED_FUND
-}
-
-// Where each subscription payment's net money went. Powers the
-// subscriber's "where my money went" statement.
-model Allocation {
-  id          String         @id @default(cuid())
-  payoutRunId String
-  payoutRun   PayoutRun      @relation(fields: [payoutRunId], references: [id], onDelete: Cascade)
-  paymentId   String
-  payment     SubscriptionPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
-  userId      String
-  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  kind        AllocationKind
-  artistId    String?
-  artist      Artist?        @relation(fields: [artistId], references: [id], onDelete: Cascade)
-  plays       Int            @default(0)
-  amountCents Int
-
-  @@index([userId])
-}
-
-model ArtistEarning {
-  id                String    @id @default(cuid())
-  payoutRunId       String
-  payoutRun         PayoutRun @relation(fields: [payoutRunId], references: [id], onDelete: Cascade)
-  artistId          String
-  artist            Artist    @relation(fields: [artistId], references: [id], onDelete: Cascade)
-  subscriptionCents Int
-  sharedFundCents   Int
-  salesCents        Int
-  totalCents        Int
-  stripeTransferId  String?
-  // Set (atomically) before a transfer is sent, so the same earning can't
-  // be paid twice and its run can't be reopened while money is moving.
-  transferStartedAt DateTime?
-  paidAt            DateTime?
-
-  @@unique([payoutRunId, artistId])
 }

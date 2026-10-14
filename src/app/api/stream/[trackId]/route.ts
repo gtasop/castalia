@@ -1,5 +1,5 @@
 import type { Quality } from "@prisma/client";
-import { canStream } from "@/lib/access";
+import { canStreamTrack } from "@/lib/access";
 import { currentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { serveFile } from "@/lib/http";
@@ -19,7 +19,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ trackId:
   const user = await currentUser();
   const track = await db.track.findUnique({ where: { id: trackId }, include: { album: true, files: true } });
   if (!track || track.status !== "READY") return new Response("Not found", { status: 404 });
-  if (!(await canStream(user, track.album))) return new Response("Subscribe or buy this album to listen", { status: 403 });
+  if (!(await canStreamTrack(user, track))) return new Response("Buy the album to hear this track in full", { status: 403 });
 
   const wanted = new URL(req.url).searchParams.get("q") ?? "LOSSLESS";
   const order = Object.hasOwn(FALLBACK, wanted) ? FALLBACK[wanted as keyof typeof FALLBACK] : FALLBACK.LOSSLESS;
