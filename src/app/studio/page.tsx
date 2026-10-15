@@ -67,6 +67,16 @@ export default async function StudioPage({ searchParams }: { searchParams: Promi
             </div>
             <button className="btn">Create album</button>
           </div>
+          <label className="flex items-start gap-2.5 text-sm">
+            <input type="checkbox" name="rights" value="1" required className="mt-0.5 size-4 shrink-0 accent-[var(--accent)]" />
+            <span>
+              I own or have permission to use everything I&apos;ll upload to this album: recordings, songs, samples, artwork and text (
+              <Link href="/terms" target="_blank" className="link">
+                Terms
+              </Link>
+              , section 5).
+            </span>
+          </label>
         </ActionForm>
       </section>
 

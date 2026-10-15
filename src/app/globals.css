@@ -127,13 +127,31 @@ body {
 .art .art-spin,
 .art .art-ripple,
 .art .art-eq,
-.art .art-twinkle,
-.art .art-marquee {
+.art .art-twinkle {
   transform-box: fill-box;
   transform-origin: center;
 }
 .art .art-spin {
-  animation: art-spin 6s linear infinite;
+  animation: art-spin 2.4s linear infinite;
+}
+/* The punk home art: jolting starburst, misprint jitter, tape shake, stamp. */
+.art .art-burst {
+  transform-box: view-box;
+  transform-origin: 200px 186px;
+  animation: art-spin 9s steps(24) infinite;
+}
+.art .art-jitter {
+  animation: art-jitter 0.36s steps(1) infinite;
+}
+.art .art-shake {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: art-shake 2.6s linear infinite;
+}
+.art .art-slam {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: art-slam 3.2s ease-out infinite;
 }
 .art .art-ripple {
   animation: art-ripple 4.2s ease-out infinite both;
@@ -150,12 +168,6 @@ body {
 }
 .art .art-float {
   animation: art-float 5s ease-out infinite both;
-}
-.art .art-marquee {
-  animation: art-marquee 28s linear infinite;
-}
-.art .art-blink {
-  animation: art-blink 1.4s steps(2, jump-none) infinite;
 }
 /* The sign-up listener: head nods on the beat around the neck, body sways. */
 .art .art-jam {
@@ -201,8 +213,25 @@ body {
   15% { opacity: 1; }
   100% { transform: translate(16px, -72px) rotate(14deg); opacity: 0; }
 }
-@keyframes art-marquee {
-  to { transform: translateX(-50%); }
+@keyframes art-jitter {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(4px, -3px); }
+  50% { transform: translate(-3px, 3px); }
+  75% { transform: translate(3px, 4px); }
+}
+@keyframes art-shake {
+  0%, 84%, 100% { transform: translate(0, 0) rotate(0deg); }
+  86% { transform: translate(-6px, 2px) rotate(-1.5deg); }
+  89% { transform: translate(6px, -2px) rotate(1.5deg); }
+  92% { transform: translate(-4px, 1px) rotate(-1deg); }
+  95% { transform: translate(2px, 0) rotate(0.5deg); }
+}
+@keyframes art-slam {
+  0% { transform: scale(2.2) rotate(-8deg); opacity: 0; }
+  7% { transform: scale(0.94) rotate(0deg); opacity: 1; }
+  10% { transform: scale(1.04); }
+  13%, 88% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(1); opacity: 0; }
 }
 @keyframes art-jam {
   0%, 100% { transform: rotate(-6deg); }
@@ -220,9 +249,6 @@ body {
 @keyframes art-pulse {
   0%, 100% { opacity: 0.15; }
   50% { opacity: 1; }
-}
-@keyframes art-blink {
-  to { opacity: 0.15; }
 }
 
 /* Still pictures for people who ask for less motion. */

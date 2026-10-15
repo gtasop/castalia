@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
+import { after } from "next/server";
 import { redirect } from "next/navigation";
 import {
   createSession,
@@ -22,6 +23,8 @@ import type { FormState } from "@/lib/form-state";
 import { isGenre, MAX_GENRES } from "@/lib/genres";
 import { GOOGLE_SIGNUP_COOKIE, GOOGLE_SIGNUP_PURPOSE, type PendingGoogleSignup } from "@/lib/google-cookies";
 import { isId } from "@/lib/ids";
+import { MIN_AGE } from "@/lib/legal";
+import { findReset, RESET_MINUTES, sendResetEmail } from "@/lib/password-reset";
 import { lock } from "@/lib/locks";
 import { checkAmount, MAX_ALBUM_CENTS, MIN_ALBUM_CENTS } from "@/lib/money";
 import { ArtistCannotSell, artistOnboardingUrl, startAlbumPurchase } from "@/lib/payments";
@@ -64,8 +67,17 @@ function isUniqueViolation(e: unknown) {
 
 // ------------------------------------------------------------------ auth
 
+const TERMS_NEEDED = `Please confirm you're ${MIN_AGE} or older and agree to the terms`;
+
+/** Why a new password can't be used, or null if it's fine. */
+function passwordProblem(password: unknown): string | null {
+  if (typeof password !== "string" || [...password].length < 8) return "Passwords need at least 8 characters";
+  if (passwordBytes(password) > MAX_PASSWORD_BYTES) return "That password is too long. Use at most 72 bytes (72 plain letters, fewer with accents or emoji).";
+  return null;
+}
+
 export async function signup(_: FormState, form: FormData): Promise<FormState> {
-  const err = (msg: string) => formError(form, msg, "name", "email", "role", "next");
+  const err = (msg: string) => formError(form, msg, "name", "email", "role", "next", "terms");
   if (!allow(`signup:${await clientIp()}`, 10, 3600)) return err("Too many sign-ups from this connection. Try again in an hour.");
 
   const name = cleanLine(form.get("name"), 1000);
@@ -76,8 +88,9 @@ export async function signup(_: FormState, form: FormData): Promise<FormState> {
   if (!name) return err("Enter your name");
   if (charCount(name) > 100) return err("Names can be at most 100 characters");
   if (email.length > 254 || !EMAIL.test(email)) return err("Enter a valid email address");
-  if (typeof password !== "string" || [...password].length < 8) return err("Passwords need at least 8 characters");
-  if (passwordBytes(password) > MAX_PASSWORD_BYTES) return err("That password is too long. Use at most 72 bytes (72 plain letters, fewer with accents or emoji).");
+  const weak = passwordProblem(password);
+  if (weak) return err(weak);
+  if (form.get("terms") !== "1") return err(TERMS_NEEDED);
 
   if (await db.user.findUnique({ where: { email } })) return err("An account with this email already exists. Log in instead.");
   let userId: string;
@@ -88,7 +101,8 @@ export async function signup(_: FormState, form: FormData): Promise<FormState> {
         email,
         role,
         theme: toThemeEnum(await themePreference(null)),
-        passwordHash: await hashPassword(password),
+        passwordHash: await hashPassword(password as string),
+        termsAcceptedAt: new Date(),
         ...(role === "ARTIST" ? { artist: { create: { name } } } : {}),
       },
     });
@@ -109,12 +123,13 @@ export async function googleSignup(_: FormState, form: FormData): Promise<FormSt
   const pending = unseal<PendingGoogleSignup>(GOOGLE_SIGNUP_PURPOSE, jar.get(GOOGLE_SIGNUP_COOKIE)?.value);
   const expired = "This Google sign-up expired. Continue with Google again.";
   if (!pending) redirect(`/signup?${errorQuery(expired)}`);
-  const err = (msg: string) => formError(form, msg, "name", "role");
+  const err = (msg: string) => formError(form, msg, "name", "role", "terms");
   const name = cleanLine(form.get("name"), 1000);
   const role = form.get("role");
   if (role !== "LISTENER" && role !== "ARTIST") return err("Choose whether you are a listener or an artist");
   if (!name) return err("Enter your name");
   if (charCount(name) > 100) return err("Names can be at most 100 characters");
+  if (form.get("terms") !== "1") return err(TERMS_NEEDED);
 
   const taken = "An account with this email already exists. Log in with your password, then connect Google from your account page.";
   if (await db.user.findFirst({ where: { OR: [{ email: pending!.email }, { googleId: pending!.sub }] }, select: { id: true } })) {
@@ -129,6 +144,7 @@ export async function googleSignup(_: FormState, form: FormData): Promise<FormSt
         email: pending!.email,
         googleId: pending!.sub,
         role,
+        termsAcceptedAt: new Date(),
         theme: toThemeEnum(await themePreference(null)),
         ...(role === "ARTIST" ? { artist: { create: { name } } } : {}),
       },
@@ -169,6 +185,42 @@ export async function setTheme(form: FormData) {
   revalidatePath("/", "layout");
 }
 
+// "Forgot your password?" The answer is the same whether or not the account
+// exists, and the email goes out after the response, so neither the reply
+// nor how long it takes reveals who has an account.
+export async function requestPasswordReset(_: FormState, form: FormData): Promise<FormState> {
+  const email = normaliseEmail(form.get("email"));
+  if (email.length > 254 || !EMAIL.test(email)) return formError(form, "Enter a valid email address", "email");
+  if (!allow(`reset:${await clientIp()}`, 10, 3600)) return formError(form, "Too many requests from this connection. Try again in an hour.", "email");
+  if (allow(`reset:${email}`, 3, 3600)) {
+    after(() => sendResetEmail(email).catch((e) => console.error("Password reset email failed", e)));
+  }
+  return {
+    success: `If there's a Castalia account for ${email}, we've emailed it a link to choose a new password. The link works for ${RESET_MINUTES} minutes.`,
+    values: { email },
+  };
+}
+
+export async function resetPassword(_: FormState, form: FormData): Promise<FormState> {
+  if (!allow(`reset-use:${await clientIp()}`, 20, 900)) return formError(form, "Too many attempts. Wait 15 minutes and try again.");
+  const reset = await findReset(form.get("token"));
+  if (!reset) redirect(`/forgot?${errorQuery("That link has expired or was already used. Ask for a new one below.")}`);
+  const password = form.get("password");
+  const weak = passwordProblem(password);
+  if (weak) return formError(form, weak);
+  if (password !== form.get("confirm")) return formError(form, "The two passwords don't match");
+
+  const passwordHash = await hashPassword(password as string);
+  // The link works once, and every other login of this account ends.
+  await db.$transaction([
+    db.user.update({ where: { id: reset!.userId }, data: { passwordHash } }),
+    db.passwordReset.deleteMany({ where: { userId: reset!.userId } }),
+    db.session.deleteMany({ where: { userId: reset!.userId } }),
+  ]);
+  await createSession(reset!.userId);
+  redirect("/account?password=changed");
+}
+
 export async function logout() {
   await destroySession();
   redirect("/");
@@ -197,12 +249,15 @@ export async function buyAlbum(form: FormData) {
   if (!album?.published) fail("/albums", "This album isn't for sale");
   if (album!._count.tracks === 0) fail(`/album/${album!.id}`, "This album has no tracks yet, so it can't be bought");
   if (user!.artist?.id === album!.artist.id) redirect(`/album/${album!.id}`);
+  if (form.get("waiver") !== "1") {
+    fail(`/album/${album!.id}`, "Tick the box to confirm you want the album straight away, then buy again.");
+  }
   if (await db.purchase.findUnique({ where: { userId_albumId: { userId: user!.id, albumId: album!.id } }, select: { id: true } })) {
     redirect(`/album/${album!.id}?owned=1`);
   }
   let url: string;
   try {
-    url = await startAlbumPurchase(user!.id, user!.email, album!);
+    url = await startAlbumPurchase(user!.id, user!.email, album!, new Date());
   } catch (e) {
     if (e instanceof ArtistCannotSell) fail(`/album/${album!.id}`, e.message);
     throw e;
@@ -235,6 +290,7 @@ export async function createAlbum(_: FormState, form: FormData): Promise<FormSta
   if (t.error) return formError(form, t.error, "title", "price");
   const price = checkAmount(form.get("price"), MIN_ALBUM_CENTS, MAX_ALBUM_CENTS, "price");
   if (price.error) return formError(form, price.error, "title", "price");
+  if (form.get("rights") !== "1") return formError(form, "Confirm that you hold the rights to what you'll upload", "title", "price");
   const album = await db.album.create({
     data: { artistId: artist.id, title: t.title, priceCents: price.cents!, searchText: albumSearchText(t.title, artist.name) },
   });

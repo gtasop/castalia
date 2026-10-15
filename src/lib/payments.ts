@@ -56,14 +56,18 @@ async function recordPurchase(data: PurchaseRecord) {
 const intentId = (pi: string | Stripe.PaymentIntent | null) => (typeof pi === "string" ? pi : (pi?.id ?? null));
 
 /** Returns the URL to send the buyer to. */
-export async function startAlbumPurchase(userId: string, email: string, album: AlbumForSale): Promise<string> {
+/**
+ * `waivedAt` is when the buyer asked for immediate access and accepted losing
+ * the EU 14-day right to cancel; it travels with the payment as proof.
+ */
+export async function startAlbumPurchase(userId: string, email: string, album: AlbumForSale, waivedAt: Date): Promise<string> {
   const s = stripe();
   if (!s) {
     await recordPurchase({ userId, albumId: album.id, amountCents: album.priceCents });
     return `/album/${album.id}?bought=1`;
   }
   if (!canSell(album.artist)) throw new ArtistCannotSell();
-  const metadata = { kind: "album", userId, albumId: album.id };
+  const metadata = { kind: "album", userId, albumId: album.id, immediate_access_requested_at: waivedAt.toISOString() };
   const session = await s.checkout.sessions.create(
     {
       mode: "payment",
@@ -75,7 +79,14 @@ export async function startAlbumPurchase(userId: string, email: string, album: A
         },
       ],
       metadata,
-      payment_intent_data: { metadata },
+      // On the artist's receipt too, so the buyer has the consent in writing.
+      payment_intent_data: {
+        metadata,
+        description: `${album.title} by ${album.artist.name}. Digital album, delivered immediately at the buyer's request; the 14-day right to cancel ends once payment is complete.`,
+      },
+      custom_text: {
+        submit: { message: "Your album unlocks straight away. As you agreed, the 14-day right to cancel ends once payment is complete." },
+      },
       success_url: `${appUrl()}/album/${album.id}?bought=1&session={CHECKOUT_SESSION_ID}`,
       cancel_url: `${appUrl()}/album/${album.id}`,
     },

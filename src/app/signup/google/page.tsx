@@ -6,6 +6,7 @@ import { GOOGLE_SIGNUP_COOKIE, GOOGLE_SIGNUP_PURPOSE, type PendingGoogleSignup }
 import { unseal } from "@/lib/signed";
 import { googleSignup } from "../../actions";
 import { RolePicker } from "../role-picker";
+import { TermsConsent } from "../terms-consent";
 
 export const metadata = { title: "Finish signing up" };
 
@@ -25,6 +26,7 @@ export default async function GoogleSignupPage() {
           <label className="label" htmlFor="name">Name (artists: your artist name)</label>
           <input className="input" id="name" name="name" autoComplete="name" maxLength={100} defaultValue={pending.name.slice(0, 100)} required />
         </div>
+        <TermsConsent />
         <button className="btn w-full">Create account</button>
       </ActionForm>
       <p className="mt-6 text-sm text-muted">

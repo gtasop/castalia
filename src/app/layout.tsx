@@ -30,12 +30,16 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         <PlayerProvider>
           {isDemoMode() && (
             <div className="bg-accent px-4 py-1 text-center font-mono text-xs text-accent-fg">
-              demo mode: payments are simulated, no money moves
+              {/* One line on every screen, so the pinned theme button lines up with the header. */}
+              <span className="sm:hidden">demo mode: payments are simulated</span>
+              <span className="hidden sm:inline">demo mode: payments are simulated, no money moves</span>
             </div>
           )}
           <header className="border-b border-line">
-            {/* Phones: logo and account on the first row, site links below. Wider: one row. */}
-            <nav className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-5 gap-y-3 px-4 py-4" aria-label="Main">
+            {/* Phones: logo and account on the first row, site links below. Wider: one row.
+                Until the page is wide enough, the right padding keeps the links clear of the
+                theme button pinned in the corner. */}
+            <nav className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-5 gap-y-3 px-4 py-4 max-xl:pr-16" aria-label="Main">
               <Link href="/" className="mr-auto flex items-center gap-2.5" aria-label="Castalia home">
                 <Logo />
                 <span className="font-mono text-xl font-bold tracking-tighter">castalia</span>
@@ -45,7 +49,6 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
                 <NavLink href="/transparency">how it&apos;s fair</NavLink>
               </div>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                <ThemeToggle theme={theme} />
                 {user ? (
                   <>
                     {user.artist && <NavLink href="/studio">studio</NavLink>}
@@ -67,7 +70,22 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
               </div>
             </nav>
           </header>
-          <main className="mx-auto max-w-5xl px-4 pt-10 pb-40">{children}</main>
+          <main className="mx-auto max-w-5xl px-4 pt-10 pb-16">{children}</main>
+          {/* Bottom padding leaves room for the player bar. */}
+          <footer className="mx-auto max-w-5xl px-4 pb-32">
+            <div className="flex flex-wrap gap-x-5 gap-y-2 border-t border-line pt-5 font-mono text-xs text-muted">
+              <span>castalia · no profit, no cut</span>
+              <span className="flex flex-wrap gap-x-5 gap-y-2 sm:ml-auto">
+                <Link href="/transparency" className="hover:text-fg">how it&apos;s fair</Link>
+                <Link href="/terms" className="hover:text-fg">terms</Link>
+                <Link href="/privacy" className="hover:text-fg">privacy</Link>
+                <Link href="/legal" className="hover:text-fg">legal notice</Link>
+                <Link href="/report" className="hover:text-fg">report content</Link>
+              </span>
+            </div>
+          </footer>
+          {/* Pinned to the window's top-right corner, level with the header row. */}
+          <ThemeToggle theme={theme} className={`fixed right-4 z-40 ${isDemoMode() ? "top-[43px]" : "top-[19px]"}`} />
         </PlayerProvider>
       </body>
     </html>

@@ -15,7 +15,12 @@ export const GOOGLE_SIGNUP_SECONDS = 30 * 60;
 
 const clientId = () => process.env.GOOGLE_CLIENT_ID ?? "";
 const clientSecret = () => process.env.GOOGLE_CLIENT_SECRET ?? "";
-const redirectUri = () => `${process.env.APP_URL ?? "http://localhost:3000"}/api/auth/google/callback`;
+const appUrl = () => process.env.APP_URL ?? "http://localhost:3000";
+const redirectUri = () => `${appUrl()}/api/auth/google/callback`;
+
+/** The address Google sends people back to; the sign-in must start there too. */
+export const googleHost = () => new URL(appUrl()).host;
+export const googleStartUrl = (search: string) => `${appUrl()}/api/auth/google${search}`;
 
 /** Google sign-in shows only when both keys are set. */
 export const googleEnabled = () => Boolean(clientId() && clientSecret());

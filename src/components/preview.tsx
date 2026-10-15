@@ -85,7 +85,7 @@ export function PreviewButton({ albumId, title, version, small = false }: { albu
       type="button"
       onClick={toggle}
       aria-label={state === "playing" ? `Stop the preview of ${title}` : `Play a 15-second preview of ${title}`}
-      className={`btn-ghost relative overflow-hidden ${small ? "px-2.5 py-1 text-xs" : ""}`}
+      className={`btn-ghost relative overflow-hidden ${small ? "h-8 px-2.5 py-0 text-xs" : ""}`}
     >
       <span className="tabular-nums">{label}</span>
       {state === "playing" && <span className="absolute bottom-0 left-0 h-1 bg-accent" style={{ width: `${progress * 100}%` }} />}

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { GoogleMark } from "@/components/google-button";
+import { ContactEmail } from "@/components/legal";
 import { ThemePicker } from "@/components/theme";
 import { Notice } from "@/components/ui";
 import { requireUser } from "@/lib/auth";
@@ -13,7 +14,7 @@ export const metadata = { title: "Your account" };
 
 const dateFmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric" });
 
-export default async function AccountPage({ searchParams }: { searchParams: Promise<{ error?: string; sig?: string; google?: string }> }) {
+export default async function AccountPage({ searchParams }: { searchParams: Promise<{ error?: string; sig?: string; google?: string; password?: string }> }) {
   const sp = await searchParams;
   const user = await requireUser("/account");
   const purchases = await db.purchase.findMany({
@@ -27,7 +28,13 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
       <div>
         <h1 className="h1">Your account</h1>
         <div className="mt-4">
-          <Notice error={verifiedError(sp)} success={sp.google === "connected" && user.googleId ? "Google connected. You can now log in with it." : undefined} />
+          <Notice error={verifiedError(sp)} success={
+              sp.google === "connected" && user.googleId
+                ? "Google connected. You can now log in with it."
+                : sp.password === "changed"
+                  ? "Password saved. You've been logged out everywhere else."
+                  : undefined
+            } />
         </div>
       </div>
 
@@ -65,7 +72,12 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
           <dt className="text-muted">Email</dt>
           <dd className="[overflow-wrap:anywhere]">{user.email}</dd>
           <dt className="text-muted">Password</dt>
-          <dd>{user.passwordHash ? "Set" : "None: you log in with Google"}</dd>
+          <dd>
+            {user.passwordHash ? "Set" : "None: you log in with Google"} ·{" "}
+            <Link href="/forgot" className="link">
+              {user.passwordHash ? "change it" : "set one"}
+            </Link>
+          </dd>
           <dt className="text-muted">Google</dt>
           <dd>{user.googleId ? "Connected" : "Not connected"}</dd>
         </dl>
@@ -81,6 +93,17 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
         <h2 className="h2">Appearance</h2>
         <p className="mt-1 text-sm text-muted">System follows your device&apos;s light or dark setting. Your choice is saved to your account.</p>
         <ThemePicker theme={toThemePref(user.theme)} />
+      </section>
+
+      <section>
+        <h2 className="h2">Your data</h2>
+        <p className="mt-2 text-sm text-muted">
+          To get a copy of your data or close your account, email <ContactEmail /> from {user.email}. The{" "}
+          <Link href="/privacy" className="link">
+            Privacy policy
+          </Link>{" "}
+          explains what Castalia keeps and why.
+        </p>
       </section>
     </div>
   );
