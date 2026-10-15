@@ -36,7 +36,7 @@ export function ThemeToggle({ theme, className }: { theme: ThemePref; className?
       <button
         aria-label={label}
         title={label}
-        className="flex items-center rounded-lg border-[1.5px] border-edge bg-surface p-1.5 text-fg shadow-[2px_2px_0_var(--shadow)] hover:bg-line"
+        className="flex items-center rounded-[2px] border-2 border-fg bg-surface p-1.5 text-fg shadow-[3px_3px_0_var(--fg)] transition-[transform,box-shadow] duration-100 hover:-translate-x-px hover:-translate-y-px active:translate-x-[3px] active:translate-y-[3px] active:shadow-none"
       >
         <ThemeIcon theme={theme} />
       </button>

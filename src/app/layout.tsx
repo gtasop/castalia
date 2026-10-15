@@ -29,10 +29,12 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       <body className={`${interTight.variable} ${spaceMono.variable} font-sans antialiased`}>
         <PlayerProvider>
           {isDemoMode() && (
-            <div className="bg-accent px-4 py-1 text-center font-mono text-xs text-accent-fg">
+            <div className="hazard px-4 py-1 text-center font-mono text-xs leading-4 font-bold tracking-wider uppercase">
               {/* One line on every screen, so the pinned theme button lines up with the header. */}
-              <span className="sm:hidden">demo mode: payments are simulated</span>
-              <span className="hidden sm:inline">demo mode: payments are simulated, no money moves</span>
+              <span className="bg-bar px-2 text-bar-fg">
+                <span className="sm:hidden">demo mode: payments are simulated</span>
+                <span className="hidden sm:inline">demo mode: payments are simulated, no money moves</span>
+              </span>
             </div>
           )}
           <header className="border-b border-line">

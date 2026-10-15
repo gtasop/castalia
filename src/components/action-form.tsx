@@ -41,20 +41,20 @@ export function ActionForm({ action, className, children }: { action: Action; cl
   return (
     <form action={formAction} onSubmit={submit} className={className} aria-busy={pending}>
       {state?.error && (
-        <p ref={error} tabIndex={-1} role="alert" className="rounded-lg border-[1.5px] border-danger bg-danger/5 px-4 py-3 text-sm text-danger outline-none">
-          <span className="mr-2 font-mono font-bold">!</span>
-          {state.error}
+        <p ref={error} tabIndex={-1} role="alert" className="notice notice-error outline-none">
+          <span className="notice-label">error</span>
+          <span>{state.error}</span>
         </p>
       )}
       {state?.success && closed !== state && (
-        <p role="status" className="flex items-center gap-2 rounded-lg border-[1.5px] border-edge bg-accent/5 py-1 pr-1 pl-4 text-sm">
-          <span className="font-mono font-bold text-accent">✓</span>
+        <p role="status" className="notice notice-ok items-center py-1.5 pr-1.5">
+          <span className="notice-label">ok</span>
           <span className="flex-1">{state.success}</span>
           <button
             type="button"
             onClick={() => setClosed(state)}
             aria-label="Close"
-            className="grid size-7 place-items-center rounded-md text-muted hover:bg-line hover:text-fg"
+            className="grid size-7 place-items-center font-mono font-bold text-muted hover:bg-fg hover:text-bg"
           >
             ×
           </button>

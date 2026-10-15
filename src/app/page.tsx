@@ -23,7 +23,7 @@ export default async function Home() {
             <span className="sr-only">Fair to your ears. Fair to the artists.</span>
             {/* One "Fair" shared by both lines. */}
             <span aria-hidden="true" className="grid w-fit grid-cols-[auto_auto] items-center gap-x-3 sm:gap-x-4">
-              <span className="row-span-2 flex -rotate-2 items-center self-stretch rounded-xl bg-accent px-3 text-accent-fg sm:px-4">Fair</span>
+              <span className="row-span-2 flex -rotate-2 items-center self-stretch rounded-[2px] bg-accent px-3 text-accent-fg uppercase shadow-[5px_5px_0_var(--fg)] sm:px-4">Fair</span>
               <span>to your ears.</span>
               <span>to the artists.</span>
             </span>
@@ -66,7 +66,7 @@ export default async function Home() {
           )}
         </>
       ) : (
-        <section className="card flex flex-wrap items-center justify-between gap-x-6 gap-y-4">
+        <section className="card taped flex flex-wrap items-center justify-between gap-x-6 gap-y-4">
           <div className="max-w-xl">
             <h2 className="h2">The albums are for members</h2>
             <p className="mt-1 text-sm text-muted">
