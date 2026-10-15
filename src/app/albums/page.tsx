@@ -10,7 +10,6 @@ import { canSell } from "@/lib/payments";
 import { previewVersion } from "@/lib/previews";
 import { escapeLike, searchKey } from "@/lib/search";
 import { cleanLine } from "@/lib/text";
-import { buyAlbum } from "../actions";
 
 export const metadata = { title: "Buy and download" };
 
@@ -172,17 +171,18 @@ export default async function BrowseAlbumsPage({ searchParams }: { searchParams:
                     {openTracks === a.tracks.length ? "all tracks open" : `${openTracks} open ${openTracks === 1 ? "track" : "tracks"}`}
                   </p>
                 )}
-                <div className="mt-3 flex flex-wrap items-center gap-3">
+                {/* Pushed to the bottom, so the buttons line up across a row whatever the text above. */}
+                <div className="mt-auto flex flex-wrap items-center gap-3 pt-3">
                   <PreviewButton albumId={a.id} title={a.title} version={previewVersion(a)} small />
                   {isOwned ? (
-                    <Link href={`/album/${a.id}#download`} className="btn px-2.5 py-1 text-xs">
+                    <Link href={`/album/${a.id}#download`} className="btn h-8 px-2.5 py-0 text-xs">
                       {isOwner ? "your album" : "download"}
                     </Link>
                   ) : canSell(a.artist) ? (
-                    <form action={buyAlbum}>
-                      <input type="hidden" name="albumId" value={a.id} />
-                      <button className="btn px-2.5 py-1 text-xs">buy · {formatEur(a.priceCents)}</button>
-                    </form>
+                    // Buying happens on the album page, where the buyer confirms they want it straight away.
+                    <Link href={`/album/${a.id}#buy`} className="btn h-8 px-2.5 py-0 text-xs">
+                      buy · {formatEur(a.priceCents)}
+                    </Link>
                   ) : (
                     <span className="font-mono text-xs text-muted">not for sale yet</span>
                   )}

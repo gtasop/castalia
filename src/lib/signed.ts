@@ -6,7 +6,16 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 // signed for one purpose, so a value made for one use can't be replayed in
 // another.
 
-const secret = process.env.SESSION_SECRET || randomBytes(32).toString("hex");
+// Without SESSION_SECRET, a random key is made once per server process and
+// kept on globalThis: module-level state would be remade whenever the dev
+// server recompiles a route, so a Google sign-in started before a recompile
+// couldn't be checked after it. A restart still changes the key, so set
+// SESSION_SECRET anywhere that matters.
+const g = globalThis as typeof globalThis & { castaliaSecret?: string };
+if (!process.env.SESSION_SECRET && !g.castaliaSecret && process.env.NODE_ENV === "production") {
+  console.warn("SESSION_SECRET is not set: signed links and Google sign-ins will break on every restart.");
+}
+const secret = process.env.SESSION_SECRET || (g.castaliaSecret ??= randomBytes(32).toString("hex"));
 
 export function hmac(msg: string) {
   return createHmac("sha256", secret).update(msg).digest("base64url");

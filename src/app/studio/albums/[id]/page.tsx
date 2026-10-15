@@ -114,8 +114,7 @@ export default async function EditAlbumPage({
               <input type="hidden" name="albumId" value={album.id} />
               <div className="min-w-56 flex-1">
                 <label className="label" htmlFor="trackId">Track</label>
-                {/* Keyed on the saved choice: a select doesn't follow a new defaultValue, and React's
-                    form reset after saving would otherwise put back the old one. */}
+                {/* Keyed on the saved choice: a select doesn't follow a new defaultValue on its own. */}
                 <select
                   key={preview.chosenByArtist ? preview.track.id : "auto"}
                   className="input"

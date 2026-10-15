@@ -56,10 +56,7 @@ export default async function TransparencyPage() {
         <div>
           <h2 className="h2">Running costs</h2>
           <p className="mt-2 text-sm">
-            The server, storage and domain cost about {formatEur(monthlyCents)} a month right now: roughly{" "}
-            {formatEur(SERVER_EUR_PER_MONTH)} for the server, {formatEur(DOMAIN_EUR_PER_MONTH)} for the domain and{" "}
-            {formatEur(storageCents)} for {gb.toFixed(1)} GB of music in storage. Streaming and downloads cost almost nothing, because the
-            storage provider charges no download fees.
+            Running Castalia means paying for a server, storage for the music, and the domain name.
           </p>
           <p className="mt-2 text-sm">
             These costs are paid only by donations{donate ? ", collected on a public page where every euro in and out is listed" : ""}.

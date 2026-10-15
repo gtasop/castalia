@@ -33,14 +33,30 @@ model User {
   passwordHash String?
   // Google's stable account id ("sub"), once Google sign-in is connected.
   googleId     String?  @unique
+  // When they agreed to the terms and confirmed they are 16 or older.
+  termsAcceptedAt DateTime?
   role         Role     @default(LISTENER)
   theme        Theme    @default(SYSTEM)
   createdAt    DateTime @default(now())
 
   sessions  Session[]
+  passwordResets PasswordReset[]
   artist    Artist?
   purchases Purchase[]
   plays     Play[]
+}
+
+// A "choose a new password" link sent by email. Only a hash of the token is
+// stored, so the database alone can't be used to reset anyone's password.
+model PasswordReset {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 model Session {

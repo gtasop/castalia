@@ -106,7 +106,7 @@ export default async function AlbumPage({
           {owned ? (
             <span className="text-sm text-muted">{isArtist ? "Your album" : "You own this album"}</span>
           ) : forSale ? (
-            <form action={buyAlbum}>
+            <form id="buy" action={buyAlbum}>
               <input type="hidden" name="albumId" value={album.id} />
               <button className="btn">Buy album · {formatEur(album.priceCents)}</button>
             </form>
@@ -116,9 +116,24 @@ export default async function AlbumPage({
           {!owned && album.published && album.tracks.length > 0 && <PreviewButton albumId={album.id} title={album.title} version={previewVersion(album)} />}
         </div>
         {!owned && forSale && (
-          <p className="mt-2 text-xs text-muted">
-            You pay {album.artist.name} directly. Castalia takes nothing; only the card fee comes off.
-          </p>
+          <div className="mt-3 max-w-prose space-y-2 text-xs text-muted">
+            {/* EU consumers can cancel online purchases within 14 days, unless they ask for digital
+                content straight away and accept losing that right; asked here, checked again on the server. */}
+            <label className="flex items-start gap-2 text-fg">
+              <input form="buy" type="checkbox" name="waiver" value="1" required className="mt-0.5 size-4 shrink-0 accent-[var(--accent)]" />
+              <span>
+                I want the album straight away, and understand that I lose my 14-day right to cancel once the purchase is complete. I
+                accept the{" "}
+                <Link href="/terms" target="_blank" className="link">
+                  Terms
+                </Link>
+                .
+              </span>
+            </label>
+            <p>
+              You buy from {album.artist.name} and pay them directly. Castalia takes nothing; only the card fee comes off.
+            </p>
+          </div>
         )}
 
         <div className="mt-8">
@@ -175,6 +190,14 @@ export default async function AlbumPage({
               </ul>
             </details>
           </div>
+        )}
+
+        {!isArtist && (
+          <p className="mt-10 font-mono text-xs">
+            <Link href={`/report?album=${album.id}`} className="text-muted underline-offset-4 hover:text-fg hover:underline">
+              report this album
+            </Link>
+          </p>
         )}
       </div>
     </div>

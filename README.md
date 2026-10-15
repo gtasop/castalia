@@ -35,7 +35,19 @@ Artists choose the preview (track and start time) and mark tracks open in the al
 
 People sign up with an email and password, or with Google. New Google users only pick listener or artist and their name; they log in with Google and have no password.
 
-Castalia doesn't verify email addresses, so Google is never connected to an existing account automatically: someone could have signed up with another person's email. The owner logs in with their password and connects Google from their account page instead.
+Forgotten passwords are reset with an emailed link that works once, for an hour (only its hash is stored). Using it logs the account out everywhere else. Google-only users can use the same link to add a password.
+
+Castalia doesn't verify email addresses at sign-up, so Google is never connected to an existing account automatically: someone could have signed up with another person's email. The owner logs in with their password and connects Google from their account page instead.
+
+## Legal pages
+
+The footer links to the **Terms** (`/terms`), **Privacy policy** (`/privacy`), **Legal notice** (`/legal`) and **Report content** (`/report`). They are drafts written for an EU-based private operator and should be checked by a lawyer in your country before launch.
+
+- The operator's name, postal address, contact email and country come from `LEGAL_*` environment variables, so they aren't committed. Until they are set, the pages show red `[set …]` markers.
+- Signing up (with email or Google) requires confirming the minimum age (16) and accepting the terms; the date is stored as `User.termsAcceptedAt`.
+- Buying requires asking for immediate access and accepting the loss of the EU 14-day right to cancel. The time is sent with the payment to Stripe, and the wording appears on the artist's receipt.
+- Creating an album requires the artist to confirm they hold the rights.
+- Reports of illegal content go by email to `LEGAL_EMAIL`, with the questions the EU Digital Services Act asks for filled in. Every album page links to it.
 
 ## Audio
 
@@ -102,8 +114,10 @@ To try it: as an artist, connect payments in **Studio → Payments**, mark a tra
   - `charge.refunded`
   - `account.updated`
 - **Google sign-in (optional):** in Google Cloud Console, create an OAuth client ID of type *Web application*, add `https://your-domain/api/auth/google/callback` as an authorised redirect URI, and set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. The "Continue with Google" buttons appear once both are set. For local testing, add `http://localhost:3000/api/auth/google/callback` too (Google doesn't accept LAN addresses such as `http://192.168.…`).
+- **Email:** password resets are sent through [Resend](https://resend.com). Verify your domain there and set `RESEND_API_KEY` and `MAIL_FROM` (e.g. `Castalia <no-reply@your-domain>`). Locally, without them, the email is printed in the dev server's terminal.
 - **Donations:** set `DONATE_URL` to your donation page (for example your Open Collective page).
-- **`SESSION_SECRET`:** set a long random value; it signs error messages passed in URLs.
+- **`SESSION_SECRET`:** set a long random value. It signs error messages passed in URLs and the Google sign-in cookies; without it, a restart breaks sign-ins in progress.
+- **Legal details:** set `LEGAL_NAME`, `LEGAL_ADDRESS`, `LEGAL_EMAIL` and `LEGAL_COUNTRY` (see [Legal pages](#legal-pages)).
 - **Transcoding and zip building** run in the web process. On serverless hosting with short time limits, or with many uploads, move `processTrack` and `requestZip` to a background worker.
 - **Rate limits** (login, sign-up) are kept in memory, which is enough for one server.
 
@@ -125,5 +139,5 @@ To try it: as an artist, connect payments in **Studio → Payments**, mark a tra
 
 - Mobile and desktop apps, including offline listening
 - Playlists, following artists
-- Moderation and copyright claims for uploads
-- Password reset and email verification (Google sign-in covers the email side for its users)
+- Moderation tools: reports arrive by email and are acted on by hand
+- Email verification (Google sign-in covers it for its users; a password reset proves the address too)

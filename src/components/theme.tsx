@@ -27,13 +27,17 @@ export function ThemeIcon({ theme, className = "h-4 w-4" }: { theme: ThemePref; 
 }
 
 /** Header button: shows the current theme, a click moves to the next one. */
-export function ThemeToggle({ theme }: { theme: ThemePref }) {
+export function ThemeToggle({ theme, className }: { theme: ThemePref; className?: string }) {
   const next = nextTheme(theme);
   const label = `Theme: ${THEME_LABEL[theme]}. Switch to ${THEME_LABEL[next].toLowerCase()}`;
   return (
-    <form action={setTheme}>
+    <form action={setTheme} className={className}>
       <input type="hidden" name="theme" value={next} />
-      <button aria-label={label} title={label} className="flex items-center rounded-lg border-[1.5px] border-edge p-1.5 text-fg hover:bg-line">
+      <button
+        aria-label={label}
+        title={label}
+        className="flex items-center rounded-[2px] border-2 border-fg bg-surface p-1.5 text-fg shadow-[3px_3px_0_var(--fg)] transition-[transform,box-shadow] duration-100 hover:-translate-x-px hover:-translate-y-px active:translate-x-[3px] active:translate-y-[3px] active:shadow-none"
+      >
         <ThemeIcon theme={theme} />
       </button>
     </form>

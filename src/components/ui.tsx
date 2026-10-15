@@ -5,17 +5,17 @@ export function Notice({ error, success }: { error?: string | string[]; success?
   const msg = Array.isArray(error) ? error[0] : error;
   if (msg) {
     return (
-      <p className="mb-6 rounded-lg border-[1.5px] border-danger bg-danger/5 px-4 py-3 text-sm text-danger" role="alert">
-        <span className="mr-2 font-mono font-bold">!</span>
-        {msg}
+      <p className="notice notice-error mb-6" role="alert">
+        <span className="notice-label">error</span>
+        <span>{msg}</span>
       </p>
     );
   }
   if (success) {
     return (
-      <p className="mb-6 rounded-lg border-[1.5px] border-edge bg-accent/5 px-4 py-3 text-sm" role="status">
-        <span className="mr-2 font-mono font-bold text-accent">✓</span>
-        {success}
+      <p className="notice notice-ok mb-6" role="status">
+        <span className="notice-label">ok</span>
+        <span>{success}</span>
       </p>
     );
   }

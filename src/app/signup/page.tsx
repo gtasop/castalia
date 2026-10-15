@@ -7,6 +7,7 @@ import { verifiedError } from "@/lib/flash";
 import { safeNext } from "@/lib/redirect";
 import { signup } from "../actions";
 import { RolePicker } from "./role-picker";
+import { TermsConsent } from "./terms-consent";
 
 export const metadata = { title: "Create an account" };
 
@@ -34,6 +35,7 @@ export default async function SignupPage({ searchParams }: { searchParams: Promi
             <label className="label" htmlFor="password">Password (8 or more characters)</label>
             <input className="input" id="password" name="password" type="password" autoComplete="new-password" minLength={8} maxLength={72} required />
           </div>
+          <TermsConsent />
           <button className="btn w-full">Create account</button>
         </ActionForm>
         <p className="mt-6 text-sm text-muted">
